@@ -23,3 +23,4 @@ SETTINGS_FILE = path("settings.json")
 OWNERS_CACHE_FILE = path("ip_owners.json")
 REPLY_TEMPLATE_FILE = path("reply_template.txt")
 LOG_FILE = path("dns_log.csv")
+XBOX_LOG_FILE = path("xbox_log.csv")  # history of the "Xbox" tab

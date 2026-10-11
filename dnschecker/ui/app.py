@@ -22,7 +22,7 @@ class App:
         ui.setup(root)
 
         root.title("DNS Checker")
-        root.geometry(self.settings.get("geometry", "1180x700"))
+        root.geometry(ui.safe_geometry(root, self.settings.get("geometry", "1180x700")))
         root.minsize(1000, 520)
 
         self.tabs = ctk.CTkTabview(

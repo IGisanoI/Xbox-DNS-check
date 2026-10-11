@@ -83,6 +83,24 @@ def move(order, item, index):
     return rest
 
 
+def place_like(order, item, display):
+    """
+    Moves only item inside order: next to the row it now stands next to on screen.
+    All other items keep their places. Needed because the screen order is not
+    the user's order (unchecked servers are shown at the bottom).
+    """
+    rest = [x for x in order if x != item]
+    i = display.index(item)
+    if i + 1 < len(display) and display[i + 1] in rest:
+        pos = rest.index(display[i + 1])           # before the row below it
+    elif i > 0 and display[i - 1] in rest:
+        pos = rest.index(display[i - 1]) + 1       # after the row above it
+    else:
+        pos = len(rest)
+    rest.insert(pos, item)
+    return rest
+
+
 def _ip_key(ip):
     # Sort IPs as numbers (so 9.9.9.9 goes before 77.88.8.8); bad text goes last.
     try:

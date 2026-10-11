@@ -148,7 +148,12 @@ class ServersTab:
 
     def _rename(self, ip):
         """Поле для нового названия прямо поверх ячейки «Название»."""
-        x, y, w, h = self.tree.bbox(ip, "name")
+        self.tree.see(ip)            # scroll to the row first: a hidden row has no box
+        self.tree.update_idletasks()
+        box = self.tree.bbox(ip, "name")
+        if not box:                  # still not visible (window too small): do nothing
+            return
+        x, y, w, h = box
         entry = ui.inline_editor(self.tree.master, self.tree.set(ip, "name"),
                                  lambda name: self.model.rename(ip, name), width=w, height=h)
         entry.place(in_=self.tree, x=x, y=y)
@@ -177,9 +182,15 @@ class ServersTab:
     def _on_release(self, _event):
         drag, self.drag = self.drag, None
         if drag and drag["moved"]:
-            # A row was dragged: this is now the user's own order.
-            self.sort.set(server_list.SORT_CUSTOM)
-            self.model.set_order(self.tree.get_children())
+            screen = list(self.tree.get_children())
+            if self.sort.mode == server_list.SORT_CUSTOM:
+                # Move only the dragged server, the others keep their places.
+                self.model.set_order(server_list.place_like(self.model.ips(), drag["ip"], screen))
+                self._render()  # if the order did not change, put the rows back
+            else:
+                # Dragged in a sorted view: this sorted order becomes the user's own.
+                self.sort.set(server_list.SORT_CUSTOM)
+                self.model.set_order(screen)
 
     # --- add / delete ---
 
@@ -223,13 +234,21 @@ class ServersTab:
         threading.Thread(target=self._worker, args=(servers, domain, timeout), daemon=True).start()
 
     def _worker(self, servers, domain, timeout):
-        with ThreadPoolExecutor(max_workers=10) as pool:
-            futures = {pool.submit(dns_tools.resolve, ip, domain, timeout): (ip, name)
-                       for ip, name in servers}
-            for fut in as_completed(futures):
-                ip, name = futures[fut]
-                self.results.put(("result", ip, name, domain, fut.result()))
-        self.results.put(("done", None, None, None, None))
+        # try/finally: "done" is always sent, even after an error.
+        # Without it the "Проверить" button stayed grey until restart.
+        try:
+            with ThreadPoolExecutor(max_workers=10) as pool:
+                futures = {pool.submit(dns_tools.resolve, ip, domain, timeout): (ip, name)
+                           for ip, name in servers}
+                for fut in as_completed(futures):
+                    ip, name = futures[fut]
+                    try:
+                        res = fut.result()
+                    except Exception as e:  # one broken server must not stop the others
+                        res = {"ok": False, "ms": 0, "ips": [], "cname": "", "error": f"сбой: {e}"}
+                    self.results.put(("result", ip, name, domain, res))
+        finally:
+            self.results.put(("done", None, None, None, None))
 
     def _poll(self):
         """Забирает результаты из очереди: Tkinter можно трогать только из главного потока."""
@@ -266,12 +285,13 @@ class ServersTab:
             self._render()
         total = len(self.log_rows)
         ok = sum(1 for r in self.log_rows if r[4] == "OK")
+        log_error = ""
         if self.log_var.get() and self.log_rows:
             try:
                 storage.write_log(self.log_rows)
-            except OSError as e:  # for example, the CSV is open in Excel
-                self.status_var.set(f"Не удалось записать лог: {e}")
-                return
+            except OSError:  # for example, the CSV is open in Excel
+                # No "return" here: before, it also stopped the auto-repeat.
+                log_error = "   ⚠ Лог не записан — dns_log.csv открыт в другой программе?"
         text = f"Последняя проверка: {datetime.now():%H:%M:%S}   Работают: {ok} из {total}"
         if self.auto_var.get():
             interval = ui.int_from(self.interval_var, 60, 10, 3600)
@@ -279,7 +299,7 @@ class ServersTab:
             text += f"   Следующая через {interval} с"
             if ok < total:
                 self.root.bell()
-        self.status_var.set(text)
+        self.status_var.set(text + log_error)
 
     def shutdown(self):
         """Отменяет таймеры перед закрытием окна."""

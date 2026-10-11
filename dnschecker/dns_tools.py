@@ -10,7 +10,7 @@ import dns.exception
 import dns.resolver
 
 from . import owners
-from .config import KNOWN_PUBLIC_DNS
+from .config import DNS_OWNER_NAMES, KNOWN_PUBLIC_DNS
 
 # Max 4 parallel requests to one server, so the server does not
 # start dropping our requests (rate limit).
@@ -28,11 +28,16 @@ def resolve(server, domain, timeout):
     Спрашивает у DNS-сервера IPv4-адреса домена.
     Возвращает словарь: ok, ms, ips, cname, error.
     """
+    result = {"ok": False, "ms": None, "ips": [], "cname": "", "error": ""}
     resolver = dns.resolver.Resolver(configure=False)
-    resolver.nameservers = [server]
+    try:
+        resolver.nameservers = [server]  # dnspython checks the address here
+    except ValueError:
+        result["error"] = f"ошибка: «{server}» — не IP-адрес"
+        result["ms"] = 0  # the table prints ms as a number, None would crash it
+        return result
     resolver.timeout = timeout
     resolver.lifetime = timeout
-    result = {"ok": False, "ms": None, "ips": [], "cname": "", "error": ""}
     with _slot(server):
         start = time.perf_counter()
         try:
@@ -99,14 +104,17 @@ def whoami(server, timeout, tries=3, resolve_fn=None, owner_fn=None):
                 "details": f"DNS {server} не ответил ни на один из {tries} запросов."}
 
     expected = KNOWN_PUBLIC_DNS.get(server)
-    lines, foreign = [], 0
+    allowed = DNS_OWNER_NAMES.get(expected, (expected,))  # names of the service and its partners
+    lines, foreign, unknown = [], 0, 0
     for ip in seen:
         info = owner_fn(ip)
         names = owners.owner_names(info)
         mark = ""
-        if expected and names and expected not in names:
+        if expected and names and not any(a in names for a in allowed):
             foreign += 1
             mark = "   ← не " + expected.capitalize()
+        elif expected and not names:
+            unknown += 1  # owner lookup failed: we can't tell if this is interception
         lines.append(f"  {ip} — {owners.owner_text(info)}{mark}")
         if info.get("error"):
             lines.append(f"      (владелец не определён: {info['error']})")
@@ -122,6 +130,11 @@ def whoami(server, timeout, tries=3, resolve_fn=None, owner_fn=None):
         text += f"\n⚠ не {expected.capitalize()} — перехват"
         details += ["", f"Часть ответов ({foreign} из {len(seen)}) пришла не от "
                         f"{expected.capitalize()}: запросы к этому DNS по дороге перехватываются и отвечает другой сервер."]
+    elif unknown:
+        # Before, this case said "no interception", but nothing was really checked.
+        text += "\n? перехват не проверен"
+        details += ["", f"Не удалось узнать владельца {unknown} из {len(seen)} адресов (сервис RDAP "
+                        "не ответил), поэтому перехват проверить не получилось. Запустите проверку позже."]
     elif expected:
         details += ["", "Перехвата в этой проверке не замечено. Он бывает непостоянным — при сомнениях запустите проверку ещё раз."]
     else:

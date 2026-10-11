@@ -14,10 +14,13 @@ import urllib.request
 from . import paths
 
 CACHE_TTL = 7 * 24 * 3600  # 7 days
+FAIL_TTL = 5 * 60          # a failed lookup is not repeated for 5 minutes
 RDAP_SOURCES = ("https://rdap.org/ip/{ip}", "https://rdap.db.ripe.net/ip/{ip}")
 
 _cache = {}
+_failed = {}  # ip -> (time, answer): failed lookups, only in memory, not saved to disk
 _lock = threading.Lock()
+_ip_locks = {}  # ip -> Lock: only one RDAP request per IP at a time
 _dirty = False  # True = the cache changed and must be saved to disk
 # Max 2 RDAP requests at the same time: the services block us for too many requests.
 _gate = threading.Semaphore(2)
@@ -63,6 +66,7 @@ def clear_cache():
     global _dirty
     with _lock:
         _cache.clear()
+        _failed.clear()
         _dirty = False
 
 # --- RDAP requests ---
@@ -75,17 +79,41 @@ def _fetch_rdap(url, timeout):
         return json.loads(resp.read().decode("utf-8", errors="replace"))
 
 
+def _cached(ip):
+    """Saved answer for this IP (or a fresh failure), else None."""
+    with _lock:
+        if ip in _cache:
+            return _cache[ip]
+        if ip in _failed and time.time() - _failed[ip][0] < FAIL_TTL:
+            return _failed[ip][1]
+    return None
+
+
 def ip_owner(ip, timeout=6, fetch=None):
     """
     Возвращает {"org", "net", "country", "error"} — кому принадлежит сеть с этим IP.
     fetch — функция загрузки (подменяется в тестах).
     """
-    global _dirty
     fetch = fetch or _fetch_rdap
+    info = _cached(ip)
+    if info is not None:
+        return info
+    # Many checks run at the same time and often ask about the SAME IP (all DNS
+    # servers send xsts to a few Microsoft addresses). Before, each of them sent
+    # its own RDAP request: 14 requests instead of 1, and then RDAP answered 429.
+    # Now only one thread asks; the others wait and take the answer from the cache.
     with _lock:
-        if ip in _cache:
-            return _cache[ip]
+        ip_lock = _ip_locks.setdefault(ip, threading.Lock())
+    with ip_lock:
+        info = _cached(ip)  # another thread may have found it while we waited
+        if info is not None:
+            return info
+        return _lookup(ip, timeout, fetch)
 
+
+def _lookup(ip, timeout, fetch):
+    """The real RDAP request (with retries); saves the answer to the cache."""
+    global _dirty
     errors, data = [], None
     with _gate:
         for url in RDAP_SOURCES:
@@ -107,8 +135,12 @@ def ip_owner(ip, timeout=6, fetch=None):
                 break
 
     if not data:
-        # Errors are not cached: next time we try again.
-        return {"org": "", "net": "", "country": "", "error": "; ".join(errors) or "нет ответа"}
+        # Remember the failure for a few minutes only. Before, every check asked
+        # RDAP again, with slow retries, and RDAP got even more angry (HTTP 429).
+        info = {"org": "", "net": "", "country": "", "error": "; ".join(errors) or "нет ответа"}
+        with _lock:
+            _failed[ip] = (time.time(), info)
+        return info
 
     info = {"org": rdap_org(data), "net": data.get("name", "") or "",
             "country": data.get("country", "") or "", "error": "", "ts": time.time()}

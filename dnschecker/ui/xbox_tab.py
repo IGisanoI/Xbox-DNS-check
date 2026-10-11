@@ -7,7 +7,9 @@
 новые DNS добавляют строки, а не столбцы.
 """
 
+import os
 import queue
+import sys
 import threading
 import time
 import tkinter as tk
@@ -17,7 +19,7 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
-from .. import dns_tools, owners, reply, server_list, storage, xbox
+from .. import dns_tools, owners, paths, reply, server_list, storage, xbox
 from . import common as ui
 from .common import C, KIND_COLORS, LEVEL_FG
 
@@ -73,6 +75,7 @@ class XboxTab:
         self.last_kinds = {}    # ip -> kind of the previous check (for monitoring)
         self.rows = {}          # ip -> Row
         self.drag = None
+        self.from_monitor = False
 
         self._build(parent, settings)
         self.model.subscribe(self._sync_rows)
@@ -134,15 +137,24 @@ class XboxTab:
         self.empty_label = ui.label(self.table, "Список DNS пуст — добавьте серверы на вкладке «Серверы».",
                                     muted=True)
 
+        # Bottom line: status on the left, history controls on the right.
+        bottom = ctk.CTkFrame(parent, fg_color="transparent")
+        bottom.pack(fill="x", pady=(6, 0))
+        self.history_var = tk.BooleanVar(value=settings.get("history", True))
+        ui.checkbox(bottom, self.history_var, "Писать историю").pack(side="right")
+        if sys.platform == "win32":  # os.startfile exists only on Windows
+            ui.button(bottom, "Открыть историю", self._open_history, width=140,
+                      height=28, font=ui.font(12)).pack(side="right", padx=10)
         self.status_var = tk.StringVar(value="Отметьте DNS и нажмите «Проверить»")
-        ctk.CTkLabel(parent, textvariable=self.status_var, font=ui.font(12),
-                     text_color=C["muted"], anchor="w").pack(fill="x", pady=(6, 0))
+        ctk.CTkLabel(bottom, textvariable=self.status_var, font=ui.font(12),
+                     text_color=C["muted"], anchor="w").pack(side="left", fill="x", expand=True)
 
     def get_settings(self):
         return {"timeout": ui.int_from(self.timeout_var, 4, 1, 30),
                 "monitor": self.monitor_var.get(),
                 "monitor_minutes": ui.int_from(self.monitor_minutes_var, 30, 5, 240),
                 "sort": self.sort.mode,
+                "history": self.history_var.get(),
                 "unchecked": sorted(ip for ip, row in self.rows.items() if not row.selected.get())}
 
     def _columns(self, frame):
@@ -388,9 +400,14 @@ class XboxTab:
             return
         self.rows[drag["ip"]].frame.configure(fg_color=C["surface"])
         if drag["moved"]:
-            # A row was dragged: this is now the user's own order.
-            self.sort.set(server_list.SORT_CUSTOM)
-            self.model.set_order(self.display)
+            if self.sort.mode == server_list.SORT_CUSTOM:
+                # Move only the dragged server, the others keep their places.
+                self.model.set_order(server_list.place_like(self.model.ips(), drag["ip"], self.display))
+                self._relayout()  # if the order did not change, put the rows back
+            else:
+                # Dragged in a sorted view: this sorted order becomes the user's own.
+                self.sort.set(server_list.SORT_CUSTOM)
+                self.model.set_order(self.display)
 
     # --- check ---
 
@@ -403,6 +420,7 @@ class XboxTab:
                 messagebox.showwarning("Нет DNS", "Отметьте галочкой хотя бы один DNS")
             return
         self.checked = checked
+        self.from_monitor = from_monitor  # written to the history
         timeout = ui.int_from(self.timeout_var, 4, 1, 30)
         self.running = True
         self.check_btn.configure(state="disabled")
@@ -466,13 +484,23 @@ class XboxTab:
         self.running = False
         self.check_btn.configure(state="normal")
         kinds, names = {}, {}
+        history = []
+        now = datetime.now()
         for ip, name in self.checked:
             results = {i: self.data[ip, i] for i in range(len(self.items)) if (ip, i) in self.data}
             v = xbox.verdict(self.items, results, self.whoami.get(ip))
             self.verdicts[ip] = v
             kinds[ip], names[ip] = v["kind"], name
+            history.append(xbox.history_row(now, ip, name, v, self.items, results,
+                                            self.whoami.get(ip), self.from_monitor))
             self._paint_row(ip)
         owners.save_cache()
+        history_error = ""
+        if self.history_var.get() and history:
+            try:
+                storage.write_xbox_log(history, xbox.HISTORY_HEADER)
+            except OSError:  # for example, the file is open in Excel
+                history_error = "   ⚠ История не записана — xbox_log.csv открыт в другой программе?"
         if self.sort.mode == server_list.SORT_RESULT:
             self._relayout()
 
@@ -486,7 +514,7 @@ class XboxTab:
                 ui.notify(self.root, "DNS для Xbox: изменения", changed)
             text += self._schedule_monitor()
         self.last_kinds.update(kinds)
-        self.status_var.set(text)
+        self.status_var.set(text + history_error)
 
     # --- monitoring in the background ---
 
@@ -551,6 +579,12 @@ class XboxTab:
         ui.button(bar, "Скопировать и закрыть", copy_and_close, primary=True).pack(side="right")
         ui.label(bar, "Текст можно поправить здесь. Насовсем — в reply_template.txt",
                  muted=True, size=12).pack(side="left")
+
+    def _open_history(self):
+        if os.path.exists(paths.XBOX_LOG_FILE):
+            os.startfile(paths.XBOX_LOG_FILE)
+        else:
+            messagebox.showinfo("История", "История пока пуста — сначала запустите проверку")
 
     def _show_who(self, server):
         res = self.whoami.get(server)

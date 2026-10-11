@@ -7,6 +7,7 @@
 
 import copy
 import csv
+import ipaddress
 import json
 import os
 
@@ -29,13 +30,23 @@ def load_servers(path=None):
             pass  # read-only folder: just work with the built-in list
         return list(DEFAULT_SERVERS)
     servers = []
+    seen = set()
     with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.split("#")[0].strip()  # "#" starts a comment
             if not line:
                 continue
             parts = line.split(maxsplit=1)
-            servers.append((parts[0], parts[1] if len(parts) > 1 else ""))
+            # A typo like "8.8.8,4" is skipped: a bad address used to stop
+            # the whole check on the "Серверы" tab.
+            try:
+                ip = str(ipaddress.ip_address(parts[0]))
+            except ValueError:
+                continue
+            if ip in seen:  # the same IP twice would break the table (IP is the row id)
+                continue
+            seen.add(ip)
+            servers.append((ip, parts[1] if len(parts) > 1 else ""))
     return servers
 
 
@@ -137,11 +148,20 @@ def load_reply_template(path=None):
 
 def write_log(rows, path=None):
     """Дописывает результаты в CSV (открывается в Excel)."""
-    path = path or paths.LOG_FILE
+    _append_csv(rows, ["Время", "Сервер", "Название", "Домен", "Статус", "мс", "Ответ"],
+                path or paths.LOG_FILE)
+
+
+def write_xbox_log(rows, header, path=None):
+    """Дописывает историю проверок вкладки «Xbox» в xbox_log.csv."""
+    _append_csv(rows, header, path or paths.XBOX_LOG_FILE)
+
+
+def _append_csv(rows, header, path):
     new_file = not os.path.exists(path)
     # utf-8-sig + ";" — so Excel opens Russian text correctly.
     with open(path, "a", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f, delimiter=";")
         if new_file:
-            w.writerow(["Время", "Сервер", "Название", "Домен", "Статус", "мс", "Ответ"])
+            w.writerow(header)
         w.writerows(rows)

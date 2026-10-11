@@ -7,6 +7,7 @@
 поправить словарь C.
 """
 
+import re
 import sys
 import tkinter as tk
 from tkinter import ttk
@@ -198,6 +199,37 @@ def show_text_window(root, title, text):
     return win
 
 # --- misc ---
+
+
+def _screen_area(root):
+    """(left, top, right, bottom) of all monitors together."""
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            m = ctypes.windll.user32.GetSystemMetrics
+            # 76-79 = the "virtual screen": a box around all connected monitors.
+            left, top = m(76), m(77)
+            return left, top, left + m(78), top + m(79)
+        except Exception:
+            pass
+    return 0, 0, root.winfo_screenwidth(), root.winfo_screenheight()
+
+
+def safe_geometry(root, geometry):
+    """
+    Saved window size and position. If the position is off all screens (for example,
+    the second monitor is unplugged), keep only the size, and Windows places the window.
+    """
+    m = re.fullmatch(r"(\d+)x(\d+)\+(-?\d+)\+(-?\d+)", geometry or "")
+    if not m:
+        return geometry
+    w, h, x, y = map(int, m.groups())
+    left, top, right, bottom = _screen_area(root)
+    # At least 100 px of the window's top edge must be on a screen, so it can be dragged.
+    # A few pixels above the screen is normal on Windows (a window at the top edge has y = -8).
+    if x + w - 100 < left or x + 100 > right or y < top - 30 or y + 40 > bottom:
+        return f"{w}x{h}"
+    return geometry
 
 
 def int_from(var, default, low, high):

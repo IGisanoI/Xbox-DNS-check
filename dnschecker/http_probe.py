@@ -35,6 +35,11 @@ def probe(ip, host, mode, timeout, method="GET", path="/", port=None, ssl_contex
             except ssl.SSLCertVerificationError as e:
                 return {"state": "cert",
                         "text": f"сертификат не подходит (консоль такой не примет): {e.verify_message}"}
+            except TimeoutError:
+                # Silence is not the same as a reset: say so, the verdict stays the same.
+                return {"state": "tls_fail",
+                        "text": f"TLS не ответил за {timeout} с — похоже на блокировку по имени домена "
+                                "(или сервер очень медленный)"}
             except (ssl.SSLError, OSError) as e:
                 return {"state": "tls_fail",
                         "text": f"TLS-соединение оборвалось — похоже на блокировку по имени домена ({e})"}

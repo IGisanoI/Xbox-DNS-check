@@ -80,6 +80,18 @@ KNOWN_PUBLIC_DNS = {
     "208.67.222.222": "opendns", "208.67.220.220": "opendns",
 }
 
+# Who may answer for each public DNS. The resolvers of a service often sit in the
+# networks of its partners, so one name is not enough. Example: Quad9 servers are run
+# by Packet Clearing House, and its network is registered as "WoodyNet, Inc."
+# (seen on 9.9.9.9 and 149.112.112.112 — before this, it was shown as interception).
+DNS_OWNER_NAMES = {
+    "google": ("google",),
+    "cloudflare": ("cloudflare",),
+    "quad9": ("quad9", "woodynet", "packet clearing house"),
+    "yandex": ("yandex",),
+    "opendns": ("opendns", "cisco"),
+}
+
 # Microsoft / Azure networks: an answer inside them is a "real" Microsoft IP.
 MICROSOFT_NETS = [ipaddress.ip_network(n) for n in (
     "20.0.0.0/8", "13.64.0.0/11", "40.64.0.0/10", "52.96.0.0/12", "104.40.0.0/13", "191.232.0.0/13",

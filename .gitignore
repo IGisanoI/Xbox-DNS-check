@@ -13,6 +13,7 @@ dist/
 settings.json
 ip_owners.json
 dns_log.csv
+xbox_log.csv
 servers.txt
 consoles.json
 consoles.json.bak

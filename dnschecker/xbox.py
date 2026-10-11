@@ -92,6 +92,14 @@ def _judge_geo(out, best, cname, owner_fn):
         out["short"] = "✖ напрямую в Microsoft\n(блок по региону)"
         out["note"] = ("Адрес принадлежит Microsoft" + ("" if sure else " (по косвенным признакам)")
                        + ". Консоль подключится к Microsoft напрямую с российского IP абонента и получит отказ по региону (0x80a40401).")
+    elif from_ms and best["state"] == "forbidden":
+        # Microsoft answered through the gateway, but with 403. This can mean
+        # the gateway's own address is blocked too, so it is not a sure "yes".
+        out["level"] = 1
+        out["short"] = f"⚠ шлюз, но отказ {best.get('code', 403)}\n{who[:24]}"
+        out["note"] = (f"Адрес не принадлежит Microsoft ({who}), ответ пришёл от Microsoft, "
+                       f"но с кодом {best.get('code', 403)} (доступ запрещён). Возможно, адрес "
+                       "шлюза тоже заблокирован по региону. Проверьте на консоли.")
     elif from_ms:
         out["level"] = 0 if sure else 1
         out["short"] = f"✔ через шлюз\n{who[:24]}"
@@ -167,6 +175,8 @@ def cell_caption(res):
         return level, icon, "Microsoft"
     if "через шлюз" in short:
         return level, icon, "шлюз"
+    if "шлюз" in short and "отказ" in short:
+        return level, icon, "шлюз, 403"
     if "шлюз" in short:
         return level, icon, "шлюз?"
     if level == 0:
@@ -197,3 +207,28 @@ def changes(previous, current, names):
         else:
             out.append(f"✖ {label} перестал помогать")
     return out
+
+
+# Columns of xbox_log.csv (history of checks on the "Xbox" tab).
+HISTORY_HEADER = ["Время", "DNS", "Название", "Итог", "Причина", "Проблемные проверки",
+                  "Кто отвечает", "Запуск"]
+
+
+def history_row(when, ip, name, v, items, results, who=None, from_monitor=False):
+    """
+    One line for the history file about one DNS.
+      when — check time (datetime), v — result of verdict(),
+      items/results — as in verdict(), who — result of whoami (if any).
+    Only the problem checks are listed: "Вход XBL: Microsoft; Аккаунт: таймаут".
+    """
+    problems = []
+    for i, item in enumerate(items):
+        res = results.get(i)
+        if res is None:
+            continue
+        level, _icon, caption = cell_caption(res)
+        if level > 0:
+            problems.append(f"{column_title(item)}: {caption}")
+    who_text = who["text"].replace("\n", " · ") if who else ""
+    return [when.strftime("%Y-%m-%d %H:%M:%S"), ip, name, v["label"], v["reason"],
+            "; ".join(problems), who_text, "наблюдение" if from_monitor else "вручную"]
