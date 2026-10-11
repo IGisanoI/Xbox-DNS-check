@@ -1,10 +1,10 @@
 # DNS Checker
 
-Desktop tool for ISP tech support: checks which public DNS servers will help an Xbox owner
+Desktop tool checks which public DNS servers will help an Xbox owner
 who can't sign in to Xbox Live (error 0x80a40401 and similar). Python + CustomTkinter, Windows.
 
-Программа для техподдержки интернет-провайдера: показывает, какие DNS-серверы помогут абоненту,
-у которого Xbox не входит в Xbox Live. Консоль в офисе для этого не нужна.
+Программа показывает, какие DNS-серверы помогут абоненту,
+у которого Xbox не входит в Xbox Live. Консоль для этого не нужна.
 
 ## Что умеет
 
@@ -16,7 +16,7 @@ who can't sign in to Xbox Live (error 0x80a40401 and similar). Python + CustomTk
 - узнаёт владельца IP через RDAP и показывает, кто на самом деле отвечает на запросы DNS
   (`whoami.akamai.net`) — так виден перехват запросов к 8.8.8.8 и другим публичным DNS;
 - итог по каждому DNS: «Поможет / Под вопросом / Не поможет / Не отвечает»;
-- кнопка «Ответ абоненту» — готовый текст с инструкцией и подходящей парой DNS;
+- кнопка «Ответ абоненту» — готовый текст с инструкцией и подходящей парой DNS; (создан для собственного удобства в работе)
 - наблюдение в фоне: проверка каждые N минут и уведомление, если DNS перестал (или снова начал) помогать.
 
 **Вкладка «Серверы»**
