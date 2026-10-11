@@ -1,0 +1,19 @@
+# Python cache
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# PyInstaller output
+build/
+dist/
+
+# Files the program creates next to itself while it works.
+# They hold personal settings and work data, so they stay out of Git.
+settings.json
+ip_owners.json
+dns_log.csv
+servers.txt
+consoles.json
+consoles.json.bak
+reply_template.txt
