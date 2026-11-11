@@ -97,41 +97,66 @@ class XboxTab:
             self.monitor_job = self.root.after(3000, self._monitor_tick)
 
     def _initial_unchecked(self, settings):
-        """Снятые галочки из настроек. Старые версии хранили наоборот — отмеченные."""
+        """Один раз снимаем все галочки, затем восстанавливаем выбор пользователя."""
+        if not settings.get("selection_initialized"):
+            return set(self.model.ips())
         if "unchecked" in settings:
             return set(settings["unchecked"])
         if settings.get("selected") is not None:
             selected = set(settings["selected"])
             return {ip for ip in self.model.ips() if ip not in selected}
-        return set()
+        return set(self.model.ips())
 
     # --- building the window ---
 
     def _build(self, parent, settings):
-        top = ctk.CTkFrame(parent, fg_color="transparent")
-        top.pack(fill="x", pady=(4, 6))
-        self.check_btn = ui.button(top, "▶  Проверить", self.start, primary=True, width=130)
+        # Daily actions stay visible. Advanced controls live in a collapsible row.
+        primary = ctk.CTkFrame(parent, fg_color="transparent")
+        primary.pack(fill="x", pady=(4, 6))
+        self.check_btn = ui.button(primary, "▶  Проверить", self.start, primary=True, width=130)
         self.check_btn.pack(side="left")
-        self.reply_btn = ui.button(top, "Ответ абоненту", self.show_reply, width=150)
+        self.reply_btn = ui.button(primary, "Ответ абоненту", self.show_reply, width=150)
         self.reply_btn.pack(side="left", padx=8)
-        ui.button(top, "Сеть", self.show_network_settings, width=70).pack(side="left")
+        ui.button(primary, "Результат на консоли", self.show_feedback, width=170).pack(side="left")
+        self.advanced_btn = ui.button(primary, "⚙  Настройки", self._toggle_advanced, width=120)
+        self.advanced_btn.pack(side="right")
+        self.monitor_caption = ui.label(primary, "", muted=True, size=12)
+        self.monitor_caption.pack(side="right", padx=12)
 
-        ui.label(top, "мин", muted=True).pack(side="right", padx=(6, 0))
-        self.monitor_minutes_var = tk.StringVar(value=str(settings.get("monitor_minutes", 30)))
-        ui.entry(top, self.monitor_minutes_var, width=46).pack(side="right")
-        self.monitor_var = tk.BooleanVar(value=settings.get("monitor", False))
-        ui.switch(top, self.monitor_var, "Следить каждые", self._toggle_monitor).pack(side="right", padx=(18, 8))
-        self.timeout_var = tk.StringVar(value=str(settings.get("timeout", 4)))
-        ui.entry(top, self.timeout_var, width=44).pack(side="right")
-        ui.label(top, "Таймаут, с", muted=True).pack(side="right", padx=(0, 6))
-
-        bar, self.sort = ui.selection_bar(parent, self._check_all, SORT_OPTIONS,
+        tools = ctk.CTkFrame(parent, fg_color="transparent")
+        tools.pack(fill="x", pady=(0, 6))
+        self.ip_entry = ui.entry(tools, None, width=140, placeholder_text="IP-адрес")
+        self.ip_entry.pack(side="left")
+        self.name_entry = ui.entry(tools, None, width=155, placeholder_text="Название")
+        self.name_entry.pack(side="left", padx=6)
+        for entry in (self.ip_entry, self.name_entry):
+            entry.bind("<Return>", lambda _event: self._add_server())
+        ui.button(tools, "+ Добавить и выбрать", self._add_server, width=160).pack(side="left")
+        bar, self.sort = ui.selection_bar(tools, self._check_all, SORT_OPTIONS,
                                           settings.get("sort"), self._relayout)
-        ui.label(bar, "⠿ — перетащить · двойной клик по имени — переименовать · клик по IP — копировать",
-                 muted=True, size=12).pack(side="left", padx=10)
-        bar.pack(fill="x", pady=(0, 6))
+        bar.pack(side="right")
 
-        self.table = ctk.CTkScrollableFrame(parent, fg_color="transparent", corner_radius=0,
+        self.advanced = ctk.CTkFrame(parent, fg_color=C["surface"], corner_radius=8)
+        self.advanced_visible = False
+        ui.button(self.advanced, "Сеть", self.show_network_settings, width=70).pack(
+            side="left", padx=(10, 14), pady=8)
+        ui.label(self.advanced, "Таймаут, с", muted=True).pack(side="left")
+        self.timeout_var = tk.StringVar(value=str(settings.get("timeout", 4)))
+        ui.entry(self.advanced, self.timeout_var, width=44).pack(side="left", padx=(6, 14))
+        self.monitor_var = tk.BooleanVar(value=settings.get("monitor", False))
+        ui.switch(self.advanced, self.monitor_var, "Следить каждые", self._toggle_monitor).pack(side="left")
+        self.monitor_minutes_var = tk.StringVar(value=str(settings.get("monitor_minutes", 30)))
+        ui.entry(self.advanced, self.monitor_minutes_var, width=46).pack(side="left", padx=(8, 4))
+        ui.label(self.advanced, "мин", muted=True).pack(side="left")
+        self.history_var = tk.BooleanVar(value=settings.get("history", True))
+        ui.checkbox(self.advanced, self.history_var, "Писать историю").pack(side="right", padx=10)
+        if sys.platform == "win32":  # os.startfile exists only on Windows
+            ui.button(self.advanced, "Открыть историю", self._open_history, width=140,
+                      height=28, font=ui.font(12)).pack(side="right")
+
+        self.table_area = ctk.CTkFrame(parent, fg_color="transparent")
+        self.table_area.pack(fill="both", expand=True)
+        self.table = ctk.CTkScrollableFrame(self.table_area, fg_color="transparent", corner_radius=0,
                                             scrollbar_button_color=C["border"],
                                             scrollbar_button_hover_color=C["muted"])
         self.table.pack(fill="both", expand=True)
@@ -144,22 +169,48 @@ class XboxTab:
         for k, i in enumerate(self.critical):
             ui.label(header, xbox.column_title(self.items[i]), muted=True, size=12,
                      wraplength=CHECK_W).grid(row=0, column=COL_CHECKS + k)
-        self.empty_label = ui.label(self.table, "Список DNS пуст — добавьте серверы на вкладке «Серверы».",
-                                    muted=True)
+        self.empty_label = ui.label(self.table, "Список DNS пуст — добавьте адрес в поле выше.", muted=True)
 
-        # Bottom line: status on the left, history controls on the right.
         bottom = ctk.CTkFrame(parent, fg_color="transparent")
         bottom.pack(fill="x", pady=(6, 0))
-        self.history_var = tk.BooleanVar(value=settings.get("history", True))
-        ui.checkbox(bottom, self.history_var, "Писать историю").pack(side="right")
-        if sys.platform == "win32":  # os.startfile exists only on Windows
-            ui.button(bottom, "Открыть историю", self._open_history, width=140,
-                      height=28, font=ui.font(12)).pack(side="right", padx=10)
-        ui.button(bottom, "Результат на консоли", self.show_feedback, width=170,
-                  height=28, font=ui.font(12)).pack(side="left", padx=(0, 10))
         self.status_var = tk.StringVar(value="Отметьте DNS и нажмите «Проверить»")
         ctk.CTkLabel(bottom, textvariable=self.status_var, font=ui.font(12),
                      text_color=C["muted"], anchor="w").pack(side="left", fill="x", expand=True)
+        self.monitor_var.trace_add("write", lambda *_args: self._update_monitor_caption())
+        self._update_monitor_caption()
+
+    def _toggle_advanced(self):
+        self.advanced_visible = not self.advanced_visible
+        if self.advanced_visible:
+            self.advanced.pack(fill="x", pady=(0, 6), before=self.table_area)
+        else:
+            self.advanced.pack_forget()
+        self.advanced_btn.configure(text="⚙  Скрыть настройки" if self.advanced_visible else "⚙  Настройки")
+
+    def _update_monitor_caption(self):
+        enabled = self.monitor_var.get()
+        self.monitor_caption.configure(text="Слежение включено" if enabled else "",
+                                       text_color=C["ok"] if enabled else C["muted"])
+
+    def _add_server(self):
+        raw_ip = self.ip_entry.get().strip()
+        name = self.name_entry.get().strip()
+        try:
+            ip = str(ipaddress.ip_address(raw_ip))
+        except ValueError:
+            messagebox.showwarning("Ошибка", f"«{raw_ip}» — не IP-адрес")
+            return
+        self.unchecked.discard(ip)
+        if ip in self.rows:
+            self.rows[ip].selected.set(True)
+            self._relayout()
+            self.status_var.set(f"{ip} уже в списке — выбран для проверки")
+        else:
+            self.model.add(ip, name)  # subscribers create the Xbox row and update the Servers tab
+            self.status_var.set(f"{ip} добавлен и выбран для проверки")
+        self.ip_entry.delete(0, "end")
+        self.name_entry.delete(0, "end")
+        self.ip_entry.focus_set()
 
     def get_settings(self):
         return {"timeout": ui.int_from(self.timeout_var, 4, 1, 30),
@@ -170,6 +221,7 @@ class XboxTab:
                 "network_type": network.type_key(self.network_type_var.get()),
                 "network_label": self.network_label_var.get().strip() or "Не указано",
                 "detect_network": self.detect_network_var.get(),
+                "selection_initialized": True,
                 "unchecked": sorted(ip for ip, row in self.rows.items() if not row.selected.get())}
 
     def _columns(self, frame):
@@ -204,12 +256,13 @@ class XboxTab:
         self._relayout()
 
     def _relayout(self):
-        """Порядок показа: свой или по выбранной сортировке; отмеченные DNS — выше."""
+        """Меняет порядок только по явной сортировке, не по состоянию галочек."""
         rank = {ip: KIND_RANK[v["kind"]] for ip, v in self.verdicts.items()}
-        unchecked = {ip for ip, row in self.rows.items() if not row.selected.get()}
-        self.display = [ip for ip, _ in server_list.sort_servers(
-            self.model.items(), self.sort.mode, rank, unchecked)]
-        self._repack()
+        display = [ip for ip, _ in server_list.sort_servers(
+            self.model.items(), self.sort.mode, rank)]
+        if display != self.display:
+            self.display = display
+            self._repack()
 
     def _repack(self):
         """Переставляет готовые строки без пересоздания — это быстро."""
@@ -233,7 +286,7 @@ class XboxTab:
         handle.bind("<ButtonRelease-1>", self._drag_end)
 
         row.selected = tk.BooleanVar(value=ip not in self.unchecked)
-        ui.checkbox(f, row.selected, command=self._relayout, width=24).grid(row=0, column=COL_SEL, pady=8)
+        ui.checkbox(f, row.selected, width=24).grid(row=0, column=COL_SEL, pady=8)
 
         name_box = ctk.CTkFrame(f, fg_color="transparent")
         name_box.grid(row=0, column=COL_NAME, sticky="w", padx=4, pady=6)
@@ -245,13 +298,14 @@ class XboxTab:
         row.ip_label.pack(anchor="w")
         row.ip_label.bind("<Button-1>", lambda e: self._copy_ip(ip))
 
-        verdict_box = ctk.CTkFrame(f, fg_color="transparent")
+        verdict_box = ctk.CTkFrame(f, fg_color="transparent", width=VERDICT_W - 8)
         verdict_box.grid(row=0, column=COL_VERDICT, sticky="w", padx=4)
         row.pill = ctk.CTkLabel(verdict_box, text="—", width=120, height=24, corner_radius=12,
                                 fg_color=C["surface2"], text_color=C["muted"], font=ui.font(12, bold=True))
         row.pill.pack(anchor="w")
         row.reason = ctk.CTkLabel(verdict_box, text="", font=ui.font(11), text_color=C["muted"],
-                                  height=16, anchor="w")
+                                  width=VERDICT_W - 8, wraplength=VERDICT_W - 16,
+                                  height=0, anchor="w", justify="left")
         row.reason.pack(anchor="w")
 
         for k, i in enumerate(self.critical):
