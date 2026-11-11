@@ -14,17 +14,20 @@ def fake_probe(head):
     return lambda *args: {"state": "ok", "code": 401, "ms": 40, "text": "HTTP/1.1 401", "head": head}
 
 
-def test_direct_microsoft_is_bad():
+def test_direct_microsoft_leaves_region_unknown():
     owner = lambda ip: {"org": "Microsoft Corporation", "net": "", "country": "US", "error": ""}
     res = xbox.check_domain("8.8.8.8", XSTS, 2, fake_resolve("20.1.2.3"), fake_probe(""), owner)
-    assert res["level"] == 2 and res["geo_direct"]
+    assert res["level"] == 1
+    assert res["direct_unknown"] and not res["candidate"]
+    assert "регион не проверен" in res["short"]
 
 
-def test_gateway_with_microsoft_answer_is_good():
+def test_gateway_with_microsoft_answer_is_only_a_candidate():
     owner = lambda ip: {"org": "Some Hosting Ltd", "net": "", "country": "DE", "error": ""}
     res = xbox.check_domain("111.88.96.54", XSTS, 2, fake_resolve("5.6.7.8"),
                             fake_probe("x-xblcorrelationid: abc"), owner)
-    assert res["level"] == 0
+    assert res["level"] == 1 and res["candidate"]
+    assert xbox.verdict([XSTS], {0: res})["label"] == "Стоит попробовать"
 
 
 def test_blackhole_answer():
@@ -94,13 +97,17 @@ def test_drag_moves_only_one_server():
     assert server_list.place_like(order, "d", screen) == ["a", "b", "d", "c"]
 
 
-def test_history_row_lists_only_problems():
+def test_history_row_lists_only_problems_and_generic_network():
     items = config.DEFAULT_CONSOLES["Xbox"][:2]
-    results = {0: {"level": 2, "short": "✖ напрямую в Microsoft", "geo_direct": True}, 1: {"level": 0}}
+    results = {0: {"level": 2, "short": "✖ недоступен"}, 1: {"level": 0}}
     v = xbox.verdict(items, results)
-    row = xbox.history_row(datetime.datetime(2026, 10, 11, 12, 0), "9.9.9.9", "Quad9", v, items, results)
-    assert row[:4] == ["2026-10-11 12:00:00", "9.9.9.9", "Quad9", "Не поможет"]
-    assert row[5] == "Вход XBL: Microsoft"
+    run_id = "20261011T120000Z-abcdef123456"
+    net = {"type": "office", "label": "Офис", "org": "Example ISP"}
+    row = xbox.history_row(datetime.datetime(2026, 10, 11, 12, 0), "9.9.9.9", "Quad9",
+                           v, items, results, run_id=run_id, network=net)
+    assert row[:4] == ["2026-10-11 12:00:00", "9.9.9.9", "Quad9", "Не подходит"]
+    assert row[5] == "Вход XBL: недоступен"
+    assert row[-4:] == [run_id, "office", "Офис", "Example ISP"]
     assert len(row) == len(xbox.HISTORY_HEADER)
 
 

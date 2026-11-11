@@ -1,5 +1,5 @@
 """
-Вкладка «Xbox»: поможет ли DNS владельцу Xbox.
+Вкладка «Xbox»: сетевые кандидаты DNS и отдельный результат на консоли.
 
 Раскладка «DNS в строках»: каждая строка — один DNS (ручка ⠿ для
 перетаскивания, галочка, адрес, итог и важные проверки), под стрелкой ▾
@@ -7,6 +7,7 @@
 новые DNS добавляют строки, а не столбцы.
 """
 
+import ipaddress
 import os
 import queue
 import sys
@@ -19,8 +20,8 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
-from .. import dns_tools, owners, paths, reply, server_list, storage, xbox
-from . import common as ui
+from .. import __version__, dns_tools, feedback, network, owners, paths, reply, server_list, storage, xbox
+from . import common as ui, dialogs
 from .common import C, KIND_COLORS, LEVEL_FG
 
 # Column widths (pixels) and column numbers in the grid.
@@ -76,6 +77,13 @@ class XboxTab:
         self.rows = {}          # ip -> Row
         self.drag = None
         self.from_monitor = False
+        self.network_type_var = tk.StringVar(value=network.type_label(settings.get("network_type", "office")))
+        self.network_label_var = tk.StringVar(value=settings.get("network_label", "Офис"))
+        self.detect_network_var = tk.BooleanVar(value=settings.get("detect_network", True))
+        self.run_id = ""
+        self.run_network = {}
+        self.feedback_sending = False
+        self.console_results = {}
 
         self._build(parent, settings)
         self.model.subscribe(self._sync_rows)
@@ -83,6 +91,7 @@ class XboxTab:
         if load_note:
             self.status_var.set(load_note)
         self.poll_job = self.root.after(100, self._poll)
+        self.root.after(1500, self._start_feedback_flush)
         if self.monitor_var.get():
             # Monitoring was on when the program closed: start again.
             self.monitor_job = self.root.after(3000, self._monitor_tick)
@@ -105,6 +114,7 @@ class XboxTab:
         self.check_btn.pack(side="left")
         self.reply_btn = ui.button(top, "Ответ абоненту", self.show_reply, width=150)
         self.reply_btn.pack(side="left", padx=8)
+        ui.button(top, "Сеть", self.show_network_settings, width=70).pack(side="left")
 
         ui.label(top, "мин", muted=True).pack(side="right", padx=(6, 0))
         self.monitor_minutes_var = tk.StringVar(value=str(settings.get("monitor_minutes", 30)))
@@ -145,6 +155,8 @@ class XboxTab:
         if sys.platform == "win32":  # os.startfile exists only on Windows
             ui.button(bottom, "Открыть историю", self._open_history, width=140,
                       height=28, font=ui.font(12)).pack(side="right", padx=10)
+        ui.button(bottom, "Результат на консоли", self.show_feedback, width=170,
+                  height=28, font=ui.font(12)).pack(side="left", padx=(0, 10))
         self.status_var = tk.StringVar(value="Отметьте DNS и нажмите «Проверить»")
         ctk.CTkLabel(bottom, textvariable=self.status_var, font=ui.font(12),
                      text_color=C["muted"], anchor="w").pack(side="left", fill="x", expand=True)
@@ -155,6 +167,9 @@ class XboxTab:
                 "monitor_minutes": ui.int_from(self.monitor_minutes_var, 30, 5, 240),
                 "sort": self.sort.mode,
                 "history": self.history_var.get(),
+                "network_type": network.type_key(self.network_type_var.get()),
+                "network_label": self.network_label_var.get().strip() or "Не указано",
+                "detect_network": self.detect_network_var.get(),
                 "unchecked": sorted(ip for ip, row in self.rows.items() if not row.selected.get())}
 
     def _columns(self, frame):
@@ -269,7 +284,13 @@ class XboxTab:
         if v:
             bg, fg = KIND_COLORS[v["kind"]]
             row.pill.configure(text=v["label"], fg_color=bg, text_color=fg)
-            row.reason.configure(text=v["reason"])
+            reason = v["reason"]
+            outcome = self.console_results.get(ip)
+            if outcome:
+                labels = {"worked": "консоль: вход заработал", "same_error": "консоль: та же ошибка",
+                          "different_error": "консоль: другая ошибка", "unknown": "консоль: неизвестно"}
+                reason = (reason + " · " if reason else "") + labels[outcome]
+            row.reason.configure(text=reason)
         if row.expanded:
             self._fill_details(ip)
 
@@ -421,6 +442,9 @@ class XboxTab:
             return
         self.checked = checked
         self.from_monitor = from_monitor  # written to the history
+        self.run_id = feedback.new_run_id()
+        self.run_network = {"type": network.type_key(self.network_type_var.get()),
+                            "label": self.network_label_var.get().strip() or "Не указано", "org": ""}
         timeout = ui.int_from(self.timeout_var, 4, 1, 30)
         self.running = True
         self.check_btn.configure(state="disabled")
@@ -435,12 +459,15 @@ class XboxTab:
         self.total = len(checked) * len(self.items)
         prefix = "Наблюдение: " if from_monitor else ""
         self.status_var.set(f"{prefix}проверка {len(self.items)} доменов через {len(checked)} DNS…")
-        threading.Thread(target=self._worker, args=(list(checked), list(self.items), timeout),
+        threading.Thread(target=self._worker,
+                         args=(list(checked), list(self.items), timeout, self.detect_network_var.get()),
                          daemon=True).start()
 
-    def _worker(self, servers, items, timeout):
+    def _worker(self, servers, items, timeout, detect_network):
         with ThreadPoolExecutor(max_workers=24) as pool:
             futures = {}
+            if detect_network:
+                futures[pool.submit(network.detect_org)] = ("network", None, None)
             for ip, _ in servers:
                 futures[pool.submit(dns_tools.whoami, ip, timeout)] = ("who", ip, None)
                 for i, item in enumerate(items):
@@ -450,10 +477,13 @@ class XboxTab:
                 try:
                     res = fut.result()
                 except Exception as e:  # one failed check must not stop the others
-                    res = ({"text": "—", "level": None, "dead": False, "details": str(e)}
-                           if kind == "who" else
-                           {"resolve": {}, "probes": [], "level": 2, "short": f"✖ сбой: {e}",
-                            "owner": None, "note": "", "geo_direct": False})
+                    if kind == "who":
+                        res = {"text": "—", "level": None, "dead": False, "details": str(e)}
+                    elif kind == "network":
+                        res = {"org": "", "country": ""}
+                    else:
+                        res = {"resolve": {}, "probes": [], "level": 2, "short": f"✖ сбой: {e}",
+                               "owner": None, "note": "", "geo_direct": False}
                 self.results.put((kind, ip, i, res))
         self.results.put(("done", None, None, None))
 
@@ -468,6 +498,14 @@ class XboxTab:
             elif kind == "who":
                 self.whoami[ip] = res
                 touched.add(ip)
+            elif kind == "network":
+                self.run_network["org"] = network.org_text(res)
+            elif kind == "feedback":
+                self.feedback_sending = False
+                if res.get("error"):
+                    self.status_var.set(f"Отчёт сохранён локально; в облако позже. Ожидает: {res['pending']}")
+                elif res.get("sent"):
+                    self.status_var.set("Отчёт отправлен в общую таблицу")
             else:
                 self.data[ip, i] = res
                 self.done_count += 1
@@ -492,7 +530,8 @@ class XboxTab:
             self.verdicts[ip] = v
             kinds[ip], names[ip] = v["kind"], name
             history.append(xbox.history_row(now, ip, name, v, self.items, results,
-                                            self.whoami.get(ip), self.from_monitor))
+                                            self.whoami.get(ip), self.from_monitor,
+                                            self.run_id, self.run_network))
             self._paint_row(ip)
         owners.save_cache()
         history_error = ""
@@ -551,7 +590,31 @@ class XboxTab:
             if job:
                 self.root.after_cancel(job)
 
-    # --- windows ---
+    # --- windows and anonymous feedback ---
+
+    def show_network_settings(self):
+        dialogs.network_settings(self.root, self.network_type_var, self.network_label_var,
+                                 self.detect_network_var)
+
+    def show_feedback(self):
+        dialogs.console_feedback(self.root, self.checked, self.verdicts, self.run_id,
+                                 self.run_network, __version__, self._save_feedback)
+
+    def _save_feedback(self, report):
+        feedback.record_report(report)
+        self.console_results[report["dns1"]] = report["outcome"]
+        self.status_var.set("Отчёт сохранён локально. Отправляем в общую таблицу…")
+        self._start_feedback_flush()
+
+    def _start_feedback_flush(self):
+        if self.feedback_sending or not feedback.pending_count():
+            return
+        self.feedback_sending = True
+        threading.Thread(target=self._feedback_worker, daemon=True).start()
+
+    def _feedback_worker(self):
+        result = feedback.flush_outbox()
+        self.results.put(("feedback", None, None, result))
 
     def show_reply(self):
         good = [(ip, name) for ip, name in self.checked
@@ -559,7 +622,7 @@ class XboxTab:
         dns1, dns2 = reply.pick_pair(good)
         if not dns1:
             messagebox.showinfo("Ответ абоненту",
-                                "Пока нет DNS с итогом «Поможет». Запустите проверку.")
+                                "Пока нет DNS с итогом «Стоит попробовать». Запустите проверку.")
             return
         text = reply.build_reply(storage.load_reply_template(), dns1, dns2)
 
@@ -608,10 +671,16 @@ class XboxTab:
             mode = item.get("check", "https").upper()
             lines += ["", f"Подключение к {p['ip']} ({mode}, {item.get('method', 'GET')} "
                           f"{item.get('path', '/')}):", f"  {p['text']}"]
+            if p.get("attempt"):
+                lines.append(f"  попытка: {p['attempt']}")
+            if p.get("category"):
+                lines.append(f"  категория: {p['category']}")
             if p.get("ms"):
                 lines.append(f"  время: {p['ms']:.0f} мс")
             if p.get("head"):
                 lines += ["", "  Начало ответа сервера:", p["head"]]
+            if p.get("body"):
+                lines += ["", "  Начало тела ответа (без настоящих токенов):", p["body"]]
         if res.get("owner") is not None:
             lines += ["", f"Владелец адреса: {owners.owner_text(res['owner'])}"]
             if res["owner"].get("error"):

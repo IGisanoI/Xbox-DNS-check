@@ -2,7 +2,7 @@
 DNS Checker — диагностика DNS-серверов для техподдержки.
 
 Вкладка «Серверы» — живы ли DNS-серверы.
-Вкладка «Xbox»    — помогут ли конкретные DNS владельцу Xbox с ошибкой входа.
+Вкладка «Xbox»    — какие DNS стоит попробовать при ошибке входа на Xbox.
 
 Запуск:  python dns_checker_gui.py
 Нужны библиотеки dnspython и customtkinter:  pip install -r requirements.txt

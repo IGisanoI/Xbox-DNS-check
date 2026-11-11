@@ -2,4 +2,4 @@
 
 # Program version (shown in the window title).
 
-__version__ = "3.5"
+__version__ = "4.0"

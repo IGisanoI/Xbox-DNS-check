@@ -12,7 +12,8 @@ import json
 import os
 
 from . import paths
-from .config import CONSOLES_VERSION, DEFAULT_CONSOLES, DEFAULT_REPLY_TEMPLATE, DEFAULT_SERVERS
+from .config import (CONSOLES_VERSION, DEFAULT_CONSOLES, DEFAULT_REPLY_TEMPLATE,
+                     DEFAULT_SERVERS, LEGACY_REPLY_TEMPLATE)
 
 # --- servers.txt ---
 
@@ -127,12 +128,12 @@ def save_settings(settings, path=None):
 
 
 def load_reply_template(path=None):
-    """Текст из reply_template.txt; если файла нет — создаём из встроенного."""
+    """Load custom text; upgrade only the untouched 3.x built-in template."""
     path = path or paths.REPLY_TEMPLATE_FILE
     try:
         with open(path, encoding="utf-8") as f:
             text = f.read()
-        if text.strip():
+        if text.strip() and text != LEGACY_REPLY_TEMPLATE:
             return text
     except OSError:
         pass
@@ -153,8 +154,37 @@ def write_log(rows, path=None):
 
 
 def write_xbox_log(rows, header, path=None):
-    """Дописывает историю проверок вкладки «Xbox» в xbox_log.csv."""
-    _append_csv(rows, header, path or paths.XBOX_LOG_FILE)
+    """Дописывает историю, сначала безопасно обновляя старый заголовок CSV."""
+    path = path or paths.XBOX_LOG_FILE
+    _migrate_csv_header(path, header)
+    _append_csv(rows, header, path)
+
+
+def _migrate_csv_header(path, header):
+    """Keep old rows when columns change; save the original next to the CSV as .bak."""
+    if not os.path.exists(path):
+        return
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        rows = list(csv.reader(f, delimiter=";"))
+    if not rows or rows[0] == header:
+        return
+    old_header = rows[0]
+    old_rows = [dict(zip(old_header, row)) for row in rows[1:]]
+    backup = path + ".bak"
+    if os.path.exists(backup):
+        raise OSError(f"резервная копия уже существует: {backup}")
+    temp = path + ".tmp"
+    try:
+        with open(temp, "w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f, delimiter=";")
+            writer.writerow(header)
+            for row in old_rows:
+                writer.writerow([row.get(column, "") for column in header])
+        os.replace(path, backup)
+        os.replace(temp, path)
+    finally:
+        if os.path.exists(temp):
+            os.remove(temp)
 
 
 def _append_csv(rows, header, path):

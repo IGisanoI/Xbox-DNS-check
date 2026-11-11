@@ -1,8 +1,8 @@
 """
-Проверка, поможет ли DNS владельцу Xbox, и итоговый вердикт.
+Сетевые проверки Xbox и осторожный итог по каждому DNS.
 
-Здесь нет ничего про окна и кнопки — только логика, поэтому её легко
-проверять тестами (см. tests/test_xbox.py).
+Здесь нет окон и кнопок. Сетевой ответ не выдаётся за подтверждённый вход на
+консоли: это отдельный вид доказательства, который добавляет пользователь.
 """
 
 import ipaddress
@@ -13,10 +13,7 @@ from .http_probe import PROBE_RANK, probe
 
 
 def microsoft_owned(ip, cname, info):
-    """
-    Ведёт ли адрес напрямую в Microsoft. Возвращает (да/нет, уверенно ли).
-    Уверенно — когда известен владелец сети; иначе по косвенным признакам.
-    """
+    """Похоже ли, что адрес ведёт напрямую в Microsoft. Возвращает (да/нет, уверенность)."""
     names = owners.owner_names(info)
     if names:
         return ("microsoft" in names or "msft" in names), True
@@ -28,18 +25,20 @@ def microsoft_owned(ip, cname, info):
 def check_domain(server, item, timeout, resolve_fn=None, probe_fn=None, owner_fn=None):
     """
     Полная проверка одного домена через один DNS: резолв → подключение → оценка.
-    Возвращает словарь: level (0 хорошо / 1 под вопросом / 2 плохо), short (текст
-    ячейки), geo_direct, resolve, probes, owner, note.
-    Функции resolve_fn/probe_fn/owner_fn подменяются в тестах.
+    level: 0 — ожидаемый ответ, 1 — нужна проверка, 2 — сетевая проблема.
+    candidate/direct_unknown содержат предположения, а не подтверждение на консоли.
     """
     resolve_fn = resolve_fn or dns_tools.resolve
     probe_fn = probe_fn or probe
     owner_fn = owner_fn or owners.ip_owner
 
     host = item["host"]
-    res = resolve_fn(server, host, timeout)
+    for _attempt in range(2):  # one retry for a lost UDP answer
+        res = resolve_fn(server, host, timeout)
+        if res["ok"] or "таймаут" not in res.get("error", ""):
+            break
     out = {"resolve": res, "probes": [], "level": 2, "short": "", "owner": None,
-           "note": "", "geo_direct": False}
+           "note": "", "geo_direct": False, "candidate": False, "direct_unknown": False}
     if not res["ok"]:
         out["short"] = "✖ " + dns_tools.short_dns_error(res["error"])
         return out
@@ -52,15 +51,19 @@ def check_domain(server, item, timeout, resolve_fn=None, probe_fn=None, owner_fn
         out["level"], out["short"] = 0, "✔ резолвится"
         return out
 
-    # Try up to two addresses and keep the best result.
+    # Try up to two addresses, with one retry for transient connection failures.
     best = None
     for ip in real_ips[:2]:
-        p = probe_fn(ip, host, mode, timeout, item.get("method", "GET"), item.get("path", "/"))
-        p["ip"] = ip
-        out["probes"].append(p)
-        if best is None or PROBE_RANK[p["state"]] < PROBE_RANK[best["state"]]:
-            best = p
-        if p["state"] == "ok":
+        for attempt in range(2):
+            p = probe_fn(ip, host, mode, timeout, item.get("method", "GET"), item.get("path", "/"),
+                         item.get("headers"), item.get("payload"), item.get("expected"))
+            p["ip"], p["attempt"] = ip, attempt + 1
+            out["probes"].append(p)
+            if best is None or PROBE_RANK.get(p["state"], 4) < PROBE_RANK.get(best["state"], 4):
+                best = p
+            if p["state"] == "ok" or p["state"] not in ("tcp_fail", "tls_fail", "no_http"):
+                break
+        if best["state"] == "ok":
             break
 
     state = best["state"]
@@ -70,6 +73,12 @@ def check_domain(server, item, timeout, resolve_fn=None, probe_fn=None, owner_fn
         out["level"], out["short"] = 0, f"✔ {best['code']}  {best['ms']:.0f} мс"
     elif state == "forbidden":
         out["level"], out["short"] = 1, f"⚠ {best['code']} отказ"
+    elif state == "redirect":
+        out["level"], out["short"] = 1, f"⚠ перенаправление {best['code']}"
+    elif state == "unexpected":
+        out["level"], out["short"] = 1, f"⚠ неожиданный HTTP {best['code']}"
+    elif state == "server_error":
+        out["short"] = f"✖ ошибка сервера {best['code']}"
     else:
         out["short"] = {"cert": "✖ чужой сертификат", "tls_fail": "✖ обрыв TLS",
                         "no_http": "✖ нет ответа HTTP"}.get(state, "✖ недоступен")
@@ -78,79 +87,87 @@ def check_domain(server, item, timeout, resolve_fn=None, probe_fn=None, owner_fn
 
 def _judge_geo(out, best, cname, owner_fn):
     """
-    Для сервисов, закрытых по региону, важно, КУДА ведёт адрес.
-    Напрямую в Microsoft — консоль придёт с российским IP и получит отказ.
-    На сторонний шлюз с настоящим сертификатом и ответом Microsoft — обход работает.
+    Оценивает сетевой путь, но не выдумывает региональный результат.
+    Владелец IP и заголовки Microsoft — улики. Реальный вход и внешний адрес
+    шлюза без полной аутентификации или отчёта с консоли не проверить.
     """
     info = owner_fn(best["ip"])
     out["owner"] = info
     direct, sure = microsoft_owned(best["ip"], cname, info)
     from_ms = any(h in best.get("head", "").lower() for h in ("x-xblcorrelationid", "ms-cv"))
     who = owners.owner_text(info)
+    ownership_note = "" if sure else " (по косвенным признакам)"
     if direct:
-        out["level"], out["geo_direct"] = 2, True
-        out["short"] = "✖ напрямую в Microsoft\n(блок по региону)"
-        out["note"] = ("Адрес принадлежит Microsoft" + ("" if sure else " (по косвенным признакам)")
-                       + ". Консоль подключится к Microsoft напрямую с российского IP абонента и получит отказ по региону (0x80a40401).")
+        out["level"], out["direct_unknown"] = 1, True
+        if best["state"] == "forbidden":
+            out["short"] = f"⚠ прямой отказ {best.get('code', 403)}\nрегион не доказан"
+            out["note"] = ("Адрес принадлежит Microsoft" + ownership_note + ". Сервис ответил отказом "
+                           f"{best.get('code', 403)}. Это может быть региональное или другое ограничение; "
+                           "без корректных токенов причину определить нельзя.")
+        else:
+            out["short"] = "⚠ напрямую в Microsoft\nрегион не проверен"
+            out["note"] = ("Адрес принадлежит Microsoft" + ownership_note + ". Получен ожидаемый ответ "
+                           "на запрос без настоящих токенов. Региональные правила и реальный вход "
+                           "на консоли этот запрос не проверяет.")
     elif from_ms and best["state"] == "forbidden":
-        # Microsoft answered through the gateway, but with 403. This can mean
-        # the gateway's own address is blocked too, so it is not a sure "yes".
         out["level"] = 1
         out["short"] = f"⚠ шлюз, но отказ {best.get('code', 403)}\n{who[:24]}"
-        out["note"] = (f"Адрес не принадлежит Microsoft ({who}), ответ пришёл от Microsoft, "
-                       f"но с кодом {best.get('code', 403)} (доступ запрещён). Возможно, адрес "
-                       "шлюза тоже заблокирован по региону. Проверьте на консоли.")
+        out["note"] = (f"Адрес не принадлежит Microsoft ({who}), ответ похож на ответ Microsoft, "
+                       f"но с кодом {best.get('code', 403)}. Причина отказа и внешний адрес шлюза "
+                       "неизвестны. Нужна проверка на консоли.")
     elif from_ms:
-        out["level"] = 0 if sure else 1
-        out["short"] = f"✔ через шлюз\n{who[:24]}"
+        out["level"], out["candidate"] = 1, True
+        out["short"] = f"⚠ возможен шлюз\n{who[:24]}"
         out["note"] = (f"Адрес не принадлежит Microsoft ({who}), сертификат настоящий, "
-                       "ответ пришёл от Microsoft — значит, это шлюз, и Microsoft увидит "
-                       "его адрес, а не российский IP абонента. Обход работает."
-                       + ("" if sure else "\nВладелец адреса не определён — проверьте вручную."))
+                       "а ответ похож на ответ Microsoft. Это кандидат на шлюз, но его внешний "
+                       "адрес и успешный вход в Xbox не подтверждены."
+                       + ("" if sure else "\nВладелец адреса не определён — уверенность ниже."))
     else:
         out["level"] = 1
-        out["short"] = "⚠ шлюз, но ответ\nне от Microsoft"
+        out["short"] = "⚠ шлюз, но ответ\nне похож на Microsoft"
         out["note"] = (f"Адрес не принадлежит Microsoft ({who}), но в ответе нет признаков сервера Microsoft. "
                        "Возможно, шлюз не работает или отвечает заглушкой.")
     return out
+
 
 # Verdict kinds for one DNS server.
 GOOD, DOUBT, BAD, DEAD = "good", "doubt", "bad", "dead"
 
 
 def verdict(items, results, who=None):
-    """
-    Итог по одному DNS.
-      items   — список доменов (из consoles.json)
-      results — {номер домена: результат check_domain}
-      who     — результат whoami (если есть)
-    Возвращает {"kind": good|doubt|bad|dead, "label": короткий итог,
-                "reason": пояснение или "", "text": label и reason одной подписью}.
-    """
+    """Итог по сетевым проверкам одного DNS, без обещания результата на консоли."""
     if who and who.get("dead") and results and all(
             r.get("short", "").startswith("✖ таймаут DNS") for r in results.values()):
         return _verdict(DEAD, "Не отвечает", "закрыт для этой сети?")
 
-    crit_fail = crit_warn = other = geo_direct = 0
+    crit_fail = crit_warn = other = 0
+    candidate = direct_unknown = False
     for i, item in enumerate(items):
         res = results.get(i, {})
         level = res.get("level", 2)
-        geo_direct += bool(item.get("geo") and res.get("geo_direct"))
+        if item.get("geo"):
+            candidate = candidate or bool(res.get("candidate"))
+            direct_unknown = direct_unknown or bool(res.get("direct_unknown"))
         if item.get("critical"):
             crit_fail += level == 2
             crit_warn += level == 1
         else:
             other += level > 0
 
-    if geo_direct:
-        return _verdict(BAD, "Не поможет", "вход напрямую в Microsoft")
     if crit_fail:
-        return _verdict(BAD, "Не поможет", f"критичных проблем: {crit_fail + crit_warn}")
+        return _verdict(BAD, "Не подходит", f"критичных проблем: {crit_fail + crit_warn}")
+    if candidate:
+        reason = "кандидат с этого ПК; нужна проверка на консоли"
+        if other:
+            reason += f"; второстепенных проблем: {other}"
+        return _verdict(GOOD, "Стоит попробовать", reason)
+    if direct_unknown:
+        return _verdict(DOUBT, "Регион неясен", "прямой ответ Microsoft")
     if crit_warn:
         return _verdict(DOUBT, "Под вопросом", f"сомнительных проверок: {crit_warn}")
     if other:
-        return _verdict(GOOD, "Поможет", f"второстепенных проблем: {other}")
-    return _verdict(GOOD, "Поможет", "")
+        return _verdict(GOOD, "Стоит попробовать", f"второстепенных проблем: {other}")
+    return _verdict(GOOD, "Стоит попробовать", "по сетевым проверкам с этого ПК")
 
 
 def _verdict(kind, label, reason):
@@ -164,17 +181,14 @@ def column_title(item):
 
 
 def cell_caption(res):
-    """
-    Короткая подпись для ячейки таблицы: (уровень, значок, текст).
-    Подробности — по клику, здесь только самое главное.
-    """
+    """Короткая подпись для ячейки таблицы: (уровень, значок, текст)."""
     level = res.get("level", 2)
     icon = {0: "✓", 1: "!", 2: "✕"}[level]
     short = res.get("short", "")
-    if res.get("geo_direct"):
+    if res.get("direct_unknown") or "напрямую" in short or "прямой отказ" in short:
         return level, icon, "Microsoft"
-    if "через шлюз" in short:
-        return level, icon, "шлюз"
+    if "возможен шлюз" in short:
+        return level, icon, "шлюз?"
     if "шлюз" in short and "отказ" in short:
         return level, icon, "шлюз, 403"
     if "шлюз" in short:
@@ -184,18 +198,16 @@ def cell_caption(res):
     for key, caption in (("таймаут", "таймаут"), ("нет домена", "нет домена"),
                          ("DNS отказал", "DNS отказ"), ("заглушка", "заглушка"),
                          ("сертификат", "сертификат"), ("TLS", "обрыв TLS"),
-                         ("HTTP", "нет HTTP"), ("недоступен", "недоступен"), ("отказ", "отказ 403")):
+                         ("ошибка сервера", "HTTP 5xx"), ("неожиданный", "HTTP?"),
+                         ("перенаправление", "редирект"), ("HTTP", "нет HTTP"),
+                         ("недоступен", "недоступен"), ("отказ", "отказ 403")):
         if key in short:
             return level, icon, caption
     return level, icon, "ошибка"
 
 
 def changes(previous, current, names):
-    """
-    Что изменилось между двумя проверками (для наблюдения в фоне).
-      previous, current — {ip: kind}; names — {ip: название}
-    Возвращает список строк. Интересно только «стал / перестал помогать».
-    """
+    """Изменения кандидатов для наблюдения, без утверждения об успехе на консоли."""
     out = []
     for ip, kind in current.items():
         before = previous.get(ip)
@@ -203,24 +215,20 @@ def changes(previous, current, names):
             continue
         label = f"{names.get(ip) or ip} ({ip})"
         if kind == GOOD:
-            out.append(f"✔ {label} снова помогает")
+            out.append(f"✔ {label} снова стал кандидатом")
         else:
-            out.append(f"✖ {label} перестал помогать")
+            out.append(f"✖ {label} больше не выглядит кандидатом")
     return out
 
 
 # Columns of xbox_log.csv (history of checks on the "Xbox" tab).
 HISTORY_HEADER = ["Время", "DNS", "Название", "Итог", "Причина", "Проблемные проверки",
-                  "Кто отвечает", "Запуск"]
+                  "Кто отвечает", "Запуск", "ID запуска", "Тип сети", "Сеть", "Организация сети"]
 
 
-def history_row(when, ip, name, v, items, results, who=None, from_monitor=False):
-    """
-    One line for the history file about one DNS.
-      when — check time (datetime), v — result of verdict(),
-      items/results — as in verdict(), who — result of whoami (if any).
-    Only the problem checks are listed: "Вход XBL: Microsoft; Аккаунт: таймаут".
-    """
+def history_row(when, ip, name, v, items, results, who=None, from_monitor=False,
+                run_id="", network=None):
+    """One history row. Network and console feedback are deliberately separate evidence."""
     problems = []
     for i, item in enumerate(items):
         res = results.get(i)
@@ -230,5 +238,7 @@ def history_row(when, ip, name, v, items, results, who=None, from_monitor=False)
         if level > 0:
             problems.append(f"{column_title(item)}: {caption}")
     who_text = who["text"].replace("\n", " · ") if who else ""
+    network = network or {}
     return [when.strftime("%Y-%m-%d %H:%M:%S"), ip, name, v["label"], v["reason"],
-            "; ".join(problems), who_text, "наблюдение" if from_monitor else "вручную"]
+            "; ".join(problems), who_text, "наблюдение" if from_monitor else "вручную",
+            run_id, network.get("type", ""), network.get("label", ""), network.get("org", "")]

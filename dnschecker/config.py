@@ -27,43 +27,55 @@ DEFAULT_SERVERS = [
 
 # Raise this number when DEFAULT_CONSOLES changes:
 # then the old consoles.json is replaced with the new list.
-CONSOLES_VERSION = 6
+CONSOLES_VERSION = 8
 
 # Xbox domains we check through each DNS server.
 #   host     — domain name
 #   short    — short column title
 #   what     — what this domain is for (tooltip)
 #   critical — without it the user can't sign in
-#   geo      — this domain blocks Russia by region (needs a "foreign" IP)
+#   geo      — regional rules may apply; an anonymous probe cannot prove them
 #   check    — "https" or "http" probe
 #   method   — HTTP method (default GET)
 #   path     — URL path (default "/")
-# (Comment lines here are restored, the original comments were lost.)
+#   headers  — extra HTTP headers
+#   payload  — JSON body; deliberately invalid tokens never authenticate
+#   expected — HTTP codes that prove a well-formed service response
 
 
 DEFAULT_CONSOLES = {
     "_version": CONSOLES_VERSION,
     "Xbox": [
-        {"host": "xsts.auth.xboxlive.com", "short": "Вход XBL", "what": "Вход: токен Xbox Live (блок по региону, 0x80a40401)",
-         "critical": True, "geo": True, "check": "https", "method": "POST", "path": "/xsts/authorize"},
+        {"host": "xsts.auth.xboxlive.com", "short": "Вход XBL",
+         "what": "Вход: токен Xbox Live (региональные правила здесь не подтверждаются)",
+         "critical": True, "geo": True, "check": "https", "method": "POST", "path": "/xsts/authorize",
+         "headers": {"x-xbl-contract-version": "1"},
+         "payload": {"Properties": {"SandboxId": "RETAIL", "UserTokens": ["intentionally-invalid-token"]},
+                     "RelyingParty": "http://auth.xboxlive.com", "TokenType": "JWT"},
+         "expected": [400, 401]},
         {"host": "user.auth.xboxlive.com", "short": "Вход польз.", "what": "Вход: авторизация пользователя",
-         "critical": True, "check": "https", "method": "POST", "path": "/user/authenticate"},
+         "critical": True, "check": "https", "method": "POST", "path": "/user/authenticate",
+         "headers": {"x-xbl-contract-version": "1"},
+         "payload": {"RelyingParty": "http://auth.xboxlive.com", "TokenType": "JWT",
+                     "Properties": {"AuthMethod": "RPS", "SiteName": "user.auth.xboxlive.com",
+                                    "RpsTicket": "d=intentionally-invalid-token"}},
+         "expected": [400, 401]},
         {"host": "device.auth.xboxlive.com", "short": "Консоль", "what": "Авторизация консоли",
          "critical": True, "check": "https", "method": "POST", "path": "/device/authenticate"},
         {"host": "title.auth.xboxlive.com", "short": "Игры", "what": "Авторизация игр",
          "critical": True, "check": "https", "method": "POST", "path": "/title/authenticate"},
         {"host": "login.live.com", "short": "Аккаунт", "what": "Учётная запись Microsoft",
-         "critical": True, "check": "https"},
+         "critical": True, "check": "https", "expected": [200, 301, 302]},
         {"host": "title.mgt.xboxlive.com", "short": "Сведения", "what": "Сведения об играх",
-         "critical": True, "check": "https"},
+         "critical": True, "check": "https", "expected": [400, 401, 404]},
         {"host": "notify.xboxlive.com", "short": "Уведомления", "what": "Уведомления",
-         "critical": False, "check": "https"},
+         "critical": False, "check": "https", "expected": [400, 401, 404]},
         {"host": "assets1.xboxlive.com", "short": "Загрузки", "what": "Загрузки игр и обновлений",
-         "critical": False, "check": "http"},
+         "critical": False, "check": "http", "expected": [200, 400, 401, 404]},
         {"host": "clientconfig.passport.net", "short": "Passport", "what": "Вход и создание учётных записей",
-         "critical": False, "check": "https"},
+         "critical": False, "check": "https", "expected": [200, 301, 302, 307, 308, 400, 401, 404]},
         {"host": "www.xbox.com", "short": "Сайт", "what": "Сайт / магазин",
-         "critical": False, "check": "https"},
+         "critical": False, "check": "https", "expected": [200, 301, 302, 307, 308]},
         {"host": "www.msftconnecttest.com", "short": "Интернет (нов.)", "what": "Проверка «есть ли интернет» (новая)",
          "critical": False, "check": "http", "path": "/connecttest.txt"},
         {"host": "www.msftncsi.com", "short": "Интернет (стар.)", "what": "Проверка «есть ли интернет» (старая)",
@@ -98,9 +110,8 @@ MICROSOFT_NETS = [ipaddress.ip_network(n) for n in (
 )]
 MICROSOFT_CNAMES = ("akadns.net", "trafficmanager.net", "azurefd.net", "azureedge.net", "msedge.net")
 
-# Text for the subscriber. {dns1} and {dns2} are replaced with addresses.
-# The user can change it in reply_template.txt.
-DEFAULT_REPLY_TEMPLATE = (
+# The unmodified 3.x template can be upgraded without touching custom user text.
+LEGACY_REPLY_TEMPLATE = (
     "Чтобы восстановить вход в Xbox Live, пропишите на консоли другие DNS-серверы:\n\n"
     "1. Нажмите кнопку Xbox на геймпаде и откройте «Профиль и система» → «Настройки».\n"
     "2. Перейдите в раздел «Общие» → «Параметры сети» → «Дополнительные настройки».\n"
@@ -110,4 +121,23 @@ DEFAULT_REPLY_TEMPLATE = (
     "   Дополнительный IPv4 DNS: {dns2}\n"
     "5. Сохраните настройки и выберите «Проверить сетевое подключение».\n\n"
     "После этого перезагрузите консоль. Если ошибка сохранится, пришлите, пожалуйста, код ошибки с экрана — мы продолжим разбираться.\n"
+)
+
+# Text for the subscriber. {dns1} and {dns2} are replaced with addresses.
+# The user can change it in reply_template.txt.
+DEFAULT_REPLY_TEMPLATE = (
+    "По проверке с нашего компьютера этот вариант DNS стоит попробовать. "
+    "Гарантировать результат нельзя: окончательно он проверяется на вашей консоли.\n\n"
+    "1. Нажмите кнопку Xbox на геймпаде и откройте «Профиль и система» → «Настройки».\n"
+    "2. Перейдите в раздел «Общие» → «Параметры сети» → «Дополнительные настройки».\n"
+    "3. Выберите «Параметры DNS» → «Вручную».\n"
+    "4. Введите адреса:\n"
+    "   Основной IPv4 DNS: {dns1}\n"
+    "   Дополнительный IPv4 DNS: {dns2}\n"
+    "5. Сохраните настройки, перезагрузите консоль и проверьте вход.\n\n"
+    "Сторонний DNS получает DNS-запросы консоли, поэтому используйте только доверенные серверы. "
+    "Если роутер позволяет, лучше перенаправлять через такой DNS только нужные домены Xbox, "
+    "а не все запросы.\n\n"
+    "Напишите, пожалуйста, помогло ли это. Если ошибка осталась или изменилась, "
+    "пришлите её точный код с экрана — продолжим разбираться.\n"
 )

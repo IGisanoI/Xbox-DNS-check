@@ -1,0 +1,5 @@
+{
+  "enabled": true,
+  "endpoint": "https://script.google.com/macros/s/PASTE_DEPLOYMENT_ID/exec",
+  "token": "replace-with-a-long-random-ingestion-token"
+}

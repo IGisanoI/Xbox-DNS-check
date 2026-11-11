@@ -4,9 +4,10 @@ __pycache__/
 .venv/
 venv/
 
-# PyInstaller output
+# PyInstaller output and local release archives
 build/
 dist/
+release/
 
 # Files the program creates next to itself while it works.
 # They hold personal settings and work data, so they stay out of Git.
@@ -14,7 +15,12 @@ settings.json
 ip_owners.json
 dns_log.csv
 xbox_log.csv
+xbox_log.csv.bak
+console_feedback.csv
+feedback_outbox.json
+cloud_config.json
 servers.txt
 consoles.json
 consoles.json.bak
 reply_template.txt
+.pytest_cache/
