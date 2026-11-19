@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Проверка DNS для Xbox — быстрая проверка</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site-header">
+    <h1>Проверка DNS для Xbox</h1>
+    <p class="subtitle">Что сейчас отвечают обычные DNS-серверы на домены Xbox —
+      и какой адрес реально работает.</p>
+  </header>
+
+  <main>
+    <div class="controls">
+      <button id="check-all" class="btn-primary">Проверить всё</button>
+      <span id="status-line" class="status-line" role="status"></span>
+    </div>
+
+    <div id="error-banner" class="error-banner" hidden></div>
+
+    <div id="summary" class="summary" hidden></div>
+
+    <section class="table-wrap">
+      <table id="results-table">
+        <thead>
+          <tr>
+            <th>Домен</th>
+            <th>Обычный DNS (Google)</th>
+            <th>Обычный DNS (Cloudflare)</th>
+            <th>Итог</th>
+          </tr>
+        </thead>
+        <tbody id="results-body"></tbody>
+      </table>
+    </section>
+
+    <section class="notes">
+      <h2>Что умеет и чего не умеет эта страница</h2>
+      <ul>
+        <li>Это <strong>быстрая проверка</strong>. Она спрашивает публичные DNS через браузер
+          и сравнивает ответы с проверенным списком рабочих адресов.</li>
+        <li>Страница <strong>не проверяет ваш DNS</strong> и не проверяет вашу консоль:
+          запрос идёт напрямую к публичным серверам, мимо DNS вашего провайдера.</li>
+        <li>Глубокая проверка (любые DNS-адреса, TCP/TLS/сертификаты) — в
+          <strong>десктопной программе DNS Checker</strong>.</li>
+        <li>Гарантировать вход на консоли нельзя: окончательно способ проверяется
+          только на самой консоли.</li>
+      </ul>
+      <h2>Приватность</h2>
+      <p>Запросы уходят напрямую к публичным DNS-серверам (Google, Cloudflare) —
+        они видят ваш IP-адрес и запрошенные домены, как при любой DNS-проверке.
+        Никаких других данных страница не собирает и никуда не отправляет.</p>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>DNS Checker · диагностика для поддержки · данные о рабочих адресах обновляются вручную с датой проверки</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
