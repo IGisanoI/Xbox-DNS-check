@@ -4,6 +4,13 @@ from PyInstaller.utils.hooks import collect_data_files
 datas = []
 datas += collect_data_files('customtkinter')
 
+# Рабочие файлы рядом с программой: при первом запуске они должны лежать рядом
+# с .exe (программа читает их по пути argv[0]). Дополнительные файлы не затирают
+# пользовательские правки: PyInstaller кладёт свои копии только при распаковке.
+for name in ('servers.txt', 'consoles.json', 'reply_template.txt',
+             'cloud_config.json', 'ip_overrides.json'):
+    datas.append((name, '.'))
+
 
 a = Analysis(
     ['dns_checker_gui.py'],
