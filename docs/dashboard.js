@@ -57,7 +57,7 @@ function renderKpis(s) {
   el("kpi-rate").textContent = s.totals.reports > 0 ? pct(s.totals.success_rate) : "—";
   el("kpi-networks").textContent = s.totals.active_networks;
   el("kpi-30d").textContent = (s.totals.reports_30d || 0) +
-    (s.totals.worked_30d ? " (" + pct(s.totals.worked_30d / Math.max(1, s.totals.reports_30d)) + " успеха)" : "");
+    (s.totals.worked_30d != null ? " (" + s.totals.worked_30d + " успеха)" : "");
 }
 
 function emptyPanel(container, text) {
