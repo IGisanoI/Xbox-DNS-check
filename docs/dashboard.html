@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DNS Checker — сводная статистика</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="site-header">
+    <h1>Сводная статистика</h1>
+    <p class="subtitle">Анонимные итоги проверок DNS для Xbox. Обновляется из листа отчётов.
+      <a href="index.html" class="header-link">← к проверке</a></p>
+  </header>
+
+  <main>
+    <div id="dash-status" class="status-line">Загружаю статистику…</div>
+
+    <section class="kpi-row" id="kpi-row" hidden>
+      <div class="kpi-card"><div class="kpi-value" id="kpi-reports">—</div><div class="kpi-label">всего отчётов</div></div>
+      <div class="kpi-card"><div class="kpi-value" id="kpi-rate">—</div><div class="kpi-label">подтверждённых успехов*</div></div>
+      <div class="kpi-card"><div class="kpi-value" id="kpi-networks">—</div><div class="kpi-label">активных сетей (провайдеров)</div></div>
+      <div class="kpi-card"><div class="kpi-value" id="kpi-30d">—</div><div class="kpi-label">отчётов за 30 дней</div></div>
+    </section>
+    <p class="dash-note" id="kpi-note" hidden>* успехи / все известные итоги («не знаю» не считается)</p>
+
+    <section class="dash-grid">
+      <div class="dash-panel" id="panel-week">
+        <h2>Успешность по неделям</h2>
+        <div class="panel-body" id="chart-week"></div>
+        <p class="panel-note">Показываются только недели с тремя и более отчётами — меньше нельзя по правилам приватности.</p>
+      </div>
+
+      <div class="dash-panel" id="panel-dns">
+        <h2>DNS: отчётов и подтверждённых успехов</h2>
+        <div class="panel-body" id="chart-dns"></div>
+        <p class="panel-note">Только DNS с тремя и более отчётами.</p>
+      </div>
+
+      <div class="dash-panel" id="panel-outcome">
+        <h2>Итоги обращений</h2>
+        <div class="panel-body" id="chart-outcome"></div>
+      </div>
+
+      <div class="dash-panel" id="panel-errors">
+        <h2>Коды ошибок</h2>
+        <div class="panel-body" id="table-errors"></div>
+        <p class="panel-note">Только коды вида 0x… — так выглядят настоящие коды Xbox.</p>
+      </div>
+
+      <div class="dash-panel dash-wide" id="panel-org">
+        <h2>По провайдерам</h2>
+        <div class="panel-body" id="table-org"></div>
+        <p class="panel-note">Комбинация «DNS + провайдер» публикуется только с тремя и более отчётами.</p>
+      </div>
+    </section>
+
+    <section class="notes">
+      <h2>Что здесь нельзя увидеть — намеренно</h2>
+      <ul>
+        <li>Нет имён, IP абонентов, текста обращений — схема отчёта их не собирает.</li>
+        <li>Группы с меньше чем тремя отчётами не показываются вовсе: один звонок нельзя
+          вычислить через статистику.</li>
+        <li>Даты — только на уровне недели или группы, без привязки к отдельным отчётам.</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>DNS Checker · диагностика для поддержки · данные обновляются при каждом новом отчёте</p>
+  </footer>
+
+  <script src="config.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>

@@ -248,6 +248,90 @@ tr.details-row td {
 
 .fb-status { color: var(--green); font-size: .85rem; min-height: 1.2em; margin: .5rem 0 0; }
 
+/* --- Дашборд (Stage 4) --- */
+
+.header-link { color: var(--green); font-size: .85rem; margin-left: .6rem; }
+
+.kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: .8rem;
+  margin: 1rem 0;
+}
+
+.kpi-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: .9rem 1rem;
+  text-align: center;
+}
+
+.kpi-value { font-size: 1.7rem; font-weight: 700; color: var(--green); }
+.kpi-label { color: var(--muted); font-size: .78rem; margin-top: .2rem; }
+.dash-note { color: var(--gray); font-size: .75rem; margin: -.4rem 0 1rem; }
+
+.dash-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1rem;
+}
+
+.dash-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: .9rem 1rem;
+}
+
+.dash-panel h2 { margin: 0 0 .6rem; font-size: 1rem; }
+.dash-wide { grid-column: 1 / -1; }
+.panel-body { min-height: 80px; }
+.panel-note { color: var(--gray); font-size: .75rem; margin: .5rem 0 0; }
+
+.dash-empty {
+  color: var(--gray);
+  font-size: .88rem;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  text-align: center;
+}
+
+.chart { width: 100%; height: auto; }
+.chart .grid { stroke: var(--border); stroke-width: 1; }
+.chart .axis { fill: var(--muted); font-size: 11px; }
+.chart .line { fill: none; stroke: var(--green); stroke-width: 2; }
+.chart .dot { fill: var(--green); stroke: var(--bg); stroke-width: 1; }
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 110px 1fr 110px;
+  align-items: center;
+  gap: .5rem;
+  margin-bottom: .45rem;
+  font-size: .85rem;
+}
+
+.bar-label { font-family: Consolas, monospace; font-size: .8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-track { position: relative; height: 14px; background: #101915; border-radius: 7px; overflow: hidden; }
+.bar-total { position: absolute; left: 0; top: 0; bottom: 0; background: #2a3a32; border-radius: 7px; }
+.bar-worked { position: absolute; left: 0; top: 0; bottom: 0; background: var(--green); border-radius: 7px; }
+.bar-value { color: var(--muted); font-size: .78rem; text-align: right; }
+
+.donut-wrap { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.donut { width: 150px; height: 150px; flex: none; }
+.donut-seg { fill: none; stroke-width: 22; }
+.donut-total { fill: var(--text); font-size: 26px; font-weight: 700; }
+.donut-sub { fill: var(--muted); font-size: 11px; }
+.legend { display: flex; flex-direction: column; gap: .3rem; font-size: .85rem; }
+.legend-item { display: flex; align-items: center; gap: .5rem; }
+.legend-swatch { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+.dash-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.dash-table th { text-align: left; color: var(--muted); font-size: .75rem; text-transform: uppercase; padding: .3rem .5rem .3rem 0; }
+.dash-table td { padding: .3rem .5rem .3rem 0; border-top: 1px solid var(--border); }
+
 @media (max-width: 640px) {
   .site-header h1 { font-size: 1.25rem; }
   th, td { padding: .45rem .4rem; }
