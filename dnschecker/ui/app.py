@@ -36,7 +36,8 @@ class App:
             segmented_button_unselected_hover_color=C["surface2"],
             text_color=C["text"])
         self.tabs.pack(fill="both", expand=True, padx=12, pady=(4, 22))
-        major, minor = __version__.split(".")
+        parts = __version__.split(".")
+        major, minor = parts[0], ".".join(parts[1:]) or "0"
         ui.label(root, f"Версия {major} · релиз {minor}", muted=True, size=11).place(
             relx=1.0, rely=1.0, x=-16, y=-3, anchor="se")
         try:
