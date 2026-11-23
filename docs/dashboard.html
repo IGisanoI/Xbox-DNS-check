@@ -4,16 +4,25 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DNS Checker — сводная статистика</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="dash">
   <header class="site-header">
-    <h1>Сводная статистика</h1>
-    <p class="subtitle">Анонимные итоги проверок DNS для Xbox. Обновляется из листа отчётов.
-      <a href="index.html" class="header-link">← к проверке</a></p>
+    <div class="wrap sd-top">
+      <div class="sd-logo">DNS·CHECKER</div>
+      <nav class="sd-nav">
+        <a href="index.html">← проверка</a>
+      </nav>
+    </div>
   </header>
 
-  <main>
+  <main class="wrap">
+    <h1 class="sd-h1" style="font-size:19px">Сводная статистика</h1>
+    <p class="sd-sub">Анонимные итоги проверок DNS для Xbox · обновляется из листа отчётов</p>
+
     <div id="dash-status" class="status-line">Загружаю статистику…</div>
 
     <section class="kpi-row" id="kpi-row" hidden>

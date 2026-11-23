@@ -1,5 +1,5 @@
 /*
- * DNS Checker — веб-версия (Stage 1).
+ * DNS Checker — веб-версия (Stage 1), дизайн Platform 2.0.
  *
  * Логика вердиктов (D1): «ответил Microsoft» НЕ значит «работает».
  * Страница сравнивает ответ публичных DoH-резолверов с курируемым
@@ -28,7 +28,6 @@ const DOMAINS = [
 ];
 
 // Публичные DoH-резолверы: дают картину «что видит обычный DNS».
-// AdGuard нельзя (нет CORS-заголовков), Quad9 требует HTTP/2 — оставлены два.
 const PROVIDERS = [
   { id: "google",     name: "Google",     url: "https://dns.google/resolve",         json: true },
   { id: "cloudflare", name: "Cloudflare", url: "https://cloudflare-dns.com/dns-query", json: true },
@@ -124,8 +123,8 @@ function classifyAnswer(domain, parsed, workingMap) {
   }
   if (parsed.ips.some(isMicrosoftIp)) {
     if (working.length > 0) {
-      return { cls: "yellow", label: "адрес Microsoft, но не рабочий маршрут",
-               hint: "Рабочий адрес для этого домена сейчас другой — смотрите подробности." };
+      return { cls: "yellow", label: "не рабочий маршрут",
+               hint: "Обычные DNS дают адрес Microsoft — этот маршрут сейчас не работает. Рабочий адрес — в подробностях." };
     }
     return { cls: "gray", label: "ответ Microsoft" };
   }
@@ -155,7 +154,7 @@ function worstVerdict(perProvider) {
 const state = {
   workingMap: {},
   running: false,
-  results: new Map(), // domain -> { perProvider: [...] }
+  results: new Map(), // domain -> { perProvider: [...], verdict }
 };
 
 function el(id) { return document.getElementById(id); }
@@ -222,88 +221,101 @@ async function askProvider(provider, domain) {
   return { ...record, cached: false };
 }
 
-function renderDomainRow(domain) {
-  const tbody = el("results-body");
-  const row = document.createElement("tr");
-  row.id = "row-" + domain.host;
-  row.innerHTML =
-    '<td data-label="Домен">' +
-      '<div class="domain-name"></div>' +
-      '<div class="domain-what"></div>' +
-    '</td>' +
-    '<td data-label="Google"><span class="answer-ip">—</span><span class="answer-latency"></span></td>' +
-    '<td data-label="Cloudflare"><span class="answer-ip">—</span><span class="answer-latency"></span></td>' +
-    '<td data-label="Итог"><span class="badge gray">не проверено</span> ' +
-      '<button class="details-toggle" hidden>подробности</button></td>';
-  row.querySelector(".domain-name").textContent = domain.host;
-  row.querySelector(".domain-what").textContent = domain.short + " — " + domain.what;
-  tbody.appendChild(row);
+const CLS_ICON = { green: "✓", yellow: "!", red: "✕", gray: "…", none: "…" };
 
-  const detailsRow = document.createElement("tr");
-  detailsRow.className = "details-row";
-  detailsRow.id = "details-" + domain.host;
-  detailsRow.hidden = true;
-  detailsRow.innerHTML = '<td colspan="4"></td>';
-  tbody.appendChild(detailsRow);
+function renderDomainCard(domain) {
+  const box = el("results");
+  const card = document.createElement("div");
+  card.className = "v-card";
+  card.id = "card-" + domain.host;
 
-  row.querySelector(".details-toggle").addEventListener("click", () => {
-    detailsRow.hidden = !detailsRow.hidden;
-  });
-}
+  const head = document.createElement("div");
+  head.className = "v-head";
+  const ico = document.createElement("span");
+  ico.className = "v-ico i-gray";
+  ico.id = "ico-" + domain.host;
+  ico.textContent = "…";
+  const title = document.createElement("div");
+  title.className = "v-title";
+  const b = document.createElement("b");
+  b.textContent = domain.host;
+  const span = document.createElement("span");
+  span.textContent = domain.short + " — " + domain.what;
+  title.appendChild(b);
+  title.appendChild(span);
+  const badge = document.createElement("span");
+  badge.className = "v-badge s-gray";
+  badge.id = "badge-" + domain.host;
+  badge.textContent = "не проверено";
+  head.appendChild(ico);
+  head.appendChild(title);
+  head.appendChild(badge);
+  card.appendChild(head);
 
-function fmtProviderCell(cell, answer) {
-  const ipSpan = cell.querySelector(".answer-ip");
-  const latSpan = cell.querySelector(".answer-latency");
-  if (!answer) { ipSpan.textContent = "ошибка"; latSpan.textContent = ""; return; }
-  if (answer.error) { ipSpan.textContent = answer.error; latSpan.textContent = ""; return; }
-  ipSpan.textContent = answer.parsed.ips.length > 3
-    ? answer.parsed.ips.slice(0, 3).join(", ") + " …"
-    : answer.parsed.ips.join(", ") || answer.parsed.cnames[0] || "(пусто)";
-  latSpan.textContent = (answer.cached ? "из кэша · " : "") + answer.ms + " мс";
+  const det = document.createElement("div");
+  det.className = "v-det";
+  det.id = "det-" + domain.host;
+  det.hidden = true;
+  card.appendChild(det);
+
+  const toggle = document.createElement("button");
+  toggle.className = "v-toggle";
+  toggle.id = "tog-" + domain.host;
+  toggle.textContent = "подробности";
+  toggle.hidden = true;
+  toggle.addEventListener("click", () => { det.hidden = !det.hidden; });
+  card.appendChild(toggle);
+
+  box.appendChild(card);
 }
 
 function buildDetailsHtml(domain, perProvider, verdict) {
   const working = state.workingMap[domain.host] || [];
-  let html = "<strong>Подробности по " + domain.host + "</strong><br>";
+  let html = "";
   for (const p of perProvider) {
-    if (!p) { html += "· ошибка запроса<br>"; continue; }
-    if (p.error) { html += "· " + p.provider + ": " + p.error + "<br>"; continue; }
-    html += "· " + p.provider + ": " + (p.parsed.ips.join(", ") || "без IPv4") +
-            (p.parsed.cnames.length ? " · CNAME: " + p.parsed.cnames.join(", ") : "") +
-            " · " + p.ms + " мс<br>";
+    if (!p) { html += "<p>· ошибка запроса</p>"; continue; }
+    if (p.error) { html += "<p>· " + escHtml(p.provider) + ": " + escHtml(p.error) + "</p>"; continue; }
+    html += "<p>· <b>" + escHtml(p.provider) + "</b>: " +
+            (p.parsed.ips.length ? escHtml(p.parsed.ips.join(", ")) : "без IPv4");
+    if (p.parsed.cnames.length) html += " · через " + escHtml(p.parsed.cnames[0]);
+    html += " · " + p.ms + " мс</p>";
   }
-  if (verdict.hint) html += "<em>" + verdict.hint + "</em><br>";
+  if (verdict.hint) html += '<p class="v-hint">' + escHtml(verdict.hint) + "</p>";
   if (working.length > 0) {
-    html += "Рабочий адрес (курируемый список):<br>";
+    html += '<p class="v-work">Рабочий адрес (проверен):</p>';
     for (const w of working) {
-      html += "· <code>" + w.ip + "</code> — источник: " + w.source +
-              ", проверено: " + w.verified + "<br>";
+      html += '<p class="v-work">· <b>' + escHtml(w.ip) + "</b> — " + escHtml(w.source) +
+              ", проверено " + escHtml(w.verified) + "</p>";
     }
-  } else {
-    html += "Для этого домена отдельный рабочий адрес не задан — обычный ответ Microsoft.<br>";
   }
   return html;
 }
 
-function updateDomainRow(domain, perProvider) {
-  const row = el("row-" + domain.host);
-  const cells = row.querySelectorAll("td");
-  const withVerdicts = perProvider.map((p, i) => {
-    if (!p || p.error) return { p, verdict: null };
-    const verdict = classifyAnswer(domain.host, p.parsed, state.workingMap);
-    return { p, verdict };
-  });
-  fmtProviderCell(cells[1], perProvider[0]);
-  fmtProviderCell(cells[2], perProvider[1]);
+function escHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
 
+const CLS_BADGE = { green: "s-ok", yellow: "s-warn", red: "s-bad", gray: "s-gray", none: "s-gray" };
+const CLS_ICO = { green: "i-ok", yellow: "i-warn", red: "i-bad", gray: "i-gray", none: "i-gray" };
+
+function updateDomainCard(domain, perProvider) {
+  const card = el("card-" + domain.host);
+  const withVerdicts = perProvider.map(p => {
+    if (!p || p.error) return { p, verdict: null };
+    return { p, verdict: classifyAnswer(domain.host, p.parsed, state.workingMap) };
+  });
   const verdict = worstVerdict(withVerdicts.map(x => x.verdict ? { verdict: x.verdict } : null));
-  const badge = row.querySelector(".badge");
-  badge.className = "badge " + (verdict.cls === "none" ? "gray" : verdict.cls);
+
+  const ico = el("ico-" + domain.host);
+  ico.className = "v-ico " + (CLS_ICO[verdict.cls] || "i-gray");
+  ico.textContent = CLS_ICON[verdict.cls] || "…";
+  const badge = el("badge-" + domain.host);
+  badge.className = "v-badge " + (CLS_BADGE[verdict.cls] || "s-gray");
   badge.textContent = verdict.label;
 
-  const detailsRow = el("details-" + domain.host);
-  detailsRow.querySelector("td").innerHTML = buildDetailsHtml(domain, perProvider, verdict);
-  row.querySelector(".details-toggle").hidden = false;
+  const det = el("det-" + domain.host);
+  det.innerHTML = buildDetailsHtml(domain, perProvider, verdict);
+  el("tog-" + domain.host).hidden = false;
 
   state.results.set(domain.host, { perProvider, verdict });
 }
@@ -311,22 +323,21 @@ function updateDomainRow(domain, perProvider) {
 function renderSummary() {
   const summary = el("summary");
   summary.hidden = false;
-  let red = 0, yellow = 0, green = 0, checked = 0;
+  let yellow = 0, red = 0, checked = 0;
   for (const { verdict } of state.results.values()) {
     checked++;
-    if (verdict.cls === "red") red++;
-    else if (verdict.cls === "yellow") yellow++;
-    else if (verdict.cls === "green") green++;
+    if (verdict.cls === "yellow") yellow++;
+    else if (verdict.cls === "red") red++;
   }
-  const lines = [];
   if (checked === 0) { summary.hidden = true; return; }
+  const lines = [];
   if (yellow > 0) lines.push(
-    "Обычные DNS отвечают адресами Microsoft, но для " + yellow + " " +
+    "Обычные DNS дают адреса Microsoft, но для " + yellow + " " +
     plural(yellow, "домена", "доменов", "доменов") +
-    " рабочий маршрут сейчас другой — см. подробности в таблице.");
-  if (red > 0) lines.push("По " + red + " " + plural(red, "домену", "доменам", "доменам") + " ответы подозрительные — DNS вмешивается в ответ.");
-  if (green > 0) lines.push(green + " " + plural(green, "домен", "домена", "доменов") + " совпадают с рабочим адресом.");
-  if (lines.length === 0) lines.push("Аномалий в DNS-ответах не замечено. Если вход не работает — причина глубже DNS; нужна проверка на консоли или десктопная программа.");
+    " входа рабочий маршрут сейчас другой — см. подробности в карточках.");
+  if (red > 0) lines.push("По " + red + " " + plural(red, "домену", "доменам", "доменам") +
+    " ответы подозрительные — DNS вмешивается в ответ.");
+  if (lines.length === 0) lines.push("Аномалий в DNS-ответах не замечено. Если вход не работает — причина глубже DNS.");
   summary.innerHTML = lines.join("<br>");
 }
 
@@ -356,9 +367,7 @@ async function runAll() {
   }
 
   let done = 0, failed = 0;
-  for (const domain of DOMAINS) {
-    updateDomainRow(domain, [null, null]);
-  }
+  for (const domain of DOMAINS) updateDomainCard(domain, [null, null]);
   for (const domain of DOMAINS) {
     const perProvider = [];
     for (const provider of PROVIDERS) {
@@ -370,7 +379,7 @@ async function runAll() {
       }
       await sleep(REQUEST_DELAY_MS);
     }
-    updateDomainRow(domain, perProvider);
+    updateDomainCard(domain, perProvider);
     done++;
     setStatus("Проверено " + done + " из " + DOMAINS.length + "…");
   }
@@ -379,7 +388,6 @@ async function runAll() {
   setStatus("Готово" + tail + ". Данные кэшируются 5 минут.");
   btn.disabled = false;
   state.running = false;
-  // Stage 2: после завершённой проверки показываем панель обратной связи.
   if (typeof fbShowPanel === "function") fbShowPanel();
   if (typeof fbWire === "function" && !state.fbWired) {
     state.fbWired = true;
@@ -393,7 +401,7 @@ function friendlyError(e) {
 }
 
 async function boot() {
-  for (const d of DOMAINS) renderDomainRow(d);
+  for (const d of DOMAINS) renderDomainCard(d);
   try {
     const resp = await fetch("working-ips.json", { cache: "no-store" });
     if (resp.ok) {
@@ -402,7 +410,7 @@ async function boot() {
     }
   } catch { /* список рабочих адресов недоступен — проверка всё равно работает */ }
   el("check-all").addEventListener("click", runAll);
-  setStatus("Готов. Нажмите «Проверить всё».");
+  setStatus("Готов. Нажмите «Проверить».");
   // ?autorun=1 — самозапуск проверки (автотесты в headless-браузерах).
   if (new URLSearchParams(location.search).get("autorun") === "1") runAll();
 }

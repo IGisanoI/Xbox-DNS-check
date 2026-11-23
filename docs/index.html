@@ -3,40 +3,37 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Проверка DNS для Xbox — быстрая проверка</title>
+  <title>Проверка DNS для Xbox</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <header class="site-header">
-    <h1>Проверка DNS для Xbox</h1>
-    <p class="subtitle">Что сейчас отвечают обычные DNS-серверы на домены Xbox —
-      и какой адрес реально работает.
-      <a href="dashboard.html" class="header-link">сводная статистика →</a></p>
+    <div class="wrap sd-top">
+      <div class="sd-logo">Проверка DNS для Xbox</div>
+      <nav class="sd-nav">
+        <span class="on">проверка</span>
+        <a href="dashboard.html">статистика</a>
+      </nav>
+    </div>
   </header>
 
-  <main>
+  <main class="wrap">
+    <h1 class="sd-h1">Почему консоль не входит?</h1>
+    <p class="sd-sub">Покажем, что сейчас отвечают обычные DNS-серверы на домены Xbox —
+      и адрес, через который вход реально работает.</p>
+
     <div class="controls">
-      <button id="check-all" class="btn-primary">Проверить всё</button>
+      <button id="check-all" class="sd-cta">Проверить</button>
       <span id="status-line" class="status-line" role="status"></span>
     </div>
 
     <div id="error-banner" class="error-banner" hidden></div>
+    <div id="summary" class="sd-note" hidden></div>
 
-    <div id="summary" class="summary" hidden></div>
-
-    <section class="table-wrap">
-      <table id="results-table">
-        <thead>
-          <tr>
-            <th>Домен</th>
-            <th>Обычный DNS (Google)</th>
-            <th>Обычный DNS (Cloudflare)</th>
-            <th>Итог</th>
-          </tr>
-        </thead>
-        <tbody id="results-body"></tbody>
-      </table>
-    </section>
+    <section id="results" class="cards"></section>
 
     <section id="feedback-panel" class="feedback-panel" hidden>
       <h2>Проверили на консоли?</h2>
@@ -81,7 +78,7 @@
   </main>
 
   <footer class="site-footer">
-    <p>DNS Checker · диагностика для поддержки · данные о рабочих адресах обновляются вручную с датой проверки</p>
+    <p>DNS Checker · диагностика для поддержки · данные о рабочих адресах обновляются с датой проверки</p>
   </footer>
 
   <script src="config.js"></script>
