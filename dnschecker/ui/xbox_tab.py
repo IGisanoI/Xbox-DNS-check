@@ -139,7 +139,7 @@ class XboxTab:
                                           settings.get("sort"), self._relayout)
         bar.pack(side="right")
 
-        self.advanced = ctk.CTkFrame(parent, fg_color=C["surface"], corner_radius=8)
+        self.advanced = ctk.CTkFrame(parent, fg_color=C["surface"], corner_radius=5)
         self.advanced_visible = False
         ui.button(self.advanced, "Сеть", self.show_network_settings, width=70).pack(
             side="left", padx=(10, 14), pady=8)
@@ -277,7 +277,7 @@ class XboxTab:
     def _build_row(self, ip, name):
         row = Row()
         self.rows[ip] = row
-        f = ctk.CTkFrame(self.table, fg_color=C["surface"], corner_radius=8)
+        f = ctk.CTkFrame(self.table, fg_color=C["surface"], corner_radius=5)
         self._columns(f)
         row.frame = f
 
@@ -303,7 +303,7 @@ class XboxTab:
 
         verdict_box = ctk.CTkFrame(f, fg_color="transparent", width=VERDICT_W - 8)
         verdict_box.grid(row=0, column=COL_VERDICT, sticky="w", padx=4)
-        row.pill = ctk.CTkLabel(verdict_box, text="—", width=120, height=24, corner_radius=12,
+        row.pill = ctk.CTkLabel(verdict_box, text="—", width=120, height=24, corner_radius=4,
                                 fg_color=C["surface2"], text_color=C["muted"], font=ui.font(12, bold=True))
         row.pill.pack(anchor="w")
         row.reason = ctk.CTkLabel(verdict_box, text="", font=ui.font(11), text_color=C["muted"],
@@ -317,7 +317,7 @@ class XboxTab:
             cell.bind("<Button-1>", lambda e, i=i: self._show_details(ip, i))  # i=i: remember this i
             row.cells[i] = cell
 
-        row.expand_btn = ctk.CTkButton(f, text="▾", width=28, height=28, corner_radius=6,
+        row.expand_btn = ctk.CTkButton(f, text="▾", width=28, height=28, corner_radius=4,
                                        fg_color="transparent", hover_color=C["surface2"],
                                        text_color=C["muted"], font=ui.font(14),
                                        command=lambda: self._toggle_details(ip))
@@ -507,18 +507,18 @@ class XboxTab:
                 note = "Пока мало данных для рекомендаций."
             else:
                 note = "Сводка недоступна (нет сети и кэша) — рекомендации появятся позже."
-            panel = ctk.CTkFrame(self.parent, fg_color=C["surface"], corner_radius=8)
+            panel = ctk.CTkFrame(self.parent, fg_color=C["surface"], corner_radius=5)
             ui.label(panel, "Рекомендуемые DNS", bold=True).pack(side="left", padx=(12, 12), pady=7)
             ui.label(panel, note, muted=True, size=12).pack(side="left", pady=7)
             panel.pack(fill="x", pady=(0, 6), before=self.table_area)
             self.rec_panel = panel
             return
-        panel = ctk.CTkFrame(self.parent, fg_color=C["surface"], corner_radius=8)
+        panel = ctk.CTkFrame(self.parent, fg_color=C["surface"], corner_radius=5)
         ui.label(panel, "Рекомендуемые DNS", bold=True).pack(side="left", padx=(12, 4), pady=7)
         ui.label(panel, "из общей статистики" + (" (кэш)" if source == "cache" else ""),
                  muted=True, size=11).pack(side="left", padx=(0, 10), pady=7)
         for rec in recs:
-            chip = ctk.CTkFrame(panel, fg_color=C["surface2"], corner_radius=8)
+            chip = ctk.CTkFrame(panel, fg_color=C["surface2"], corner_radius=5)
             chip.pack(side="left", padx=4, pady=6)
             mark = " · в вашей сети" if rec["org_match"] else ""
             ui.label(chip, f"{rec['dns']}  —  {stats.label(rec)}"

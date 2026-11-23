@@ -1,32 +1,34 @@
 """
 Тема оформления и общие элементы интерфейса на CustomTkinter.
 
-Тёмная тёплая палитра: графитовый фон, чуть более светлые «карточки»,
-мягкие зелёный/красный/жёлтый для статусов и терракотовый акцент.
-Все цвета собраны здесь — чтобы поменять вид программы, достаточно
-поправить словарь C.
+Палитра Platform 2.0, «профессиональное лицо» (Network Console): графитовый
+фон, моноширинные акценты, сигнальный зелёный. Все цвета собраны здесь —
+чтобы поменять вид программы, достаточно поправить словарь C.
 """
 
 import re
 import sys
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import ttk
 
 import customtkinter as ctk
 
 C = {
-    "bg": "#262624",          # window background
-    "surface": "#30302e",     # cards and tables
-    "surface2": "#3a3a37",    # buttons, headers
-    "border": "#4a4945",
-    "text": "#ece9e1",
-    "muted": "#9c9a92",       # secondary text
-    "accent": "#d97757",      # main button (terracotta)
-    "accent_hover": "#c4643f",
-    "ok": "#8fc06b", "ok_bg": "#2f3d25",
-    "warn": "#e3b45c", "warn_bg": "#463a22",
-    "bad": "#e0786a", "bad_bg": "#4a2a24",
-    "dead_bg": "#3a3a37",
+    "bg": "#0b0f16",          # window background
+    "surface": "#0d1219",     # cards and tables
+    "surface2": "#10151f",    # buttons, headers
+    "border": "#1c2433",
+    "text": "#e6edf7",
+    "muted": "#8fa3bd",       # secondary text
+    "faint": "#4d5f7a",       # tertiary text
+    "accent": "#3fd68f",      # main button (signal green)
+    "accent_hover": "#2fbd7a",
+    "accent_ink": "#04120b",  # text on the accent button
+    "ok": "#3fd68f", "ok_bg": "#0d2417",
+    "warn": "#e8c33f", "warn_bg": "#241f0e",
+    "bad": "#e0564b", "bad_bg": "#3d1a16",
+    "dead_bg": "#10151f",
 }
 
 LEVEL_FG = {0: C["ok"], 1: C["warn"], 2: C["bad"]}  # by level: 0 good, 1 doubt, 2 bad
@@ -35,8 +37,20 @@ KIND_COLORS = {"good": (C["ok_bg"], C["ok"]), "doubt": (C["warn_bg"], C["warn"])
                "bad": (C["bad_bg"], C["bad"]), "dead": (C["dead_bg"], C["muted"])}
 
 FAMILY = "Segoe UI" if sys.platform == "win32" else "DejaVu Sans"
-MONO = "Consolas" if sys.platform == "win32" else "DejaVu Sans Mono"
+# Cascadia Mono (Windows 11) предпочтительнее Consolas; окончательный выбор — в setup().
+MONO_PREFERRED = "Cascadia Mono" if sys.platform == "win32" else "DejaVu Sans Mono"
+MONO = MONO_PREFERRED
 _fonts = {}
+
+
+def _resolve_mono(root):
+    """Cascadia Mono есть в Windows 11; на более старой системе — Consolas."""
+    global MONO
+    try:
+        families = set(tkfont.families(root))
+        MONO = MONO_PREFERRED if MONO_PREFERRED in families else "Consolas"
+    except Exception:
+        MONO = "Consolas"
 
 
 def font(size=13, bold=False, mono=False):
@@ -51,6 +65,7 @@ def font(size=13, bold=False, mono=False):
 def setup(root):
     """Общие настройки темы. Вызывается один раз после создания окна."""
     ctk.set_appearance_mode("dark")
+    _resolve_mono(root)
     style = ttk.Style(root)
     style.theme_use("clam")
     # ttk.Treeview is not part of CustomTkinter, so we paint it ourselves.
@@ -67,10 +82,10 @@ def setup(root):
 
 
 def button(parent, text, command, primary=False, width=None, **kw):
-    opts = dict(text=text, command=command, height=32, corner_radius=8, font=font(13),
+    opts = dict(text=text, command=command, height=32, corner_radius=5, font=font(13),
                 fg_color=C["accent"] if primary else C["surface2"],
                 hover_color=C["accent_hover"] if primary else C["border"],
-                text_color="#ffffff" if primary else C["text"],
+                text_color=C["accent_ink"] if primary else C["text"],
                 text_color_disabled=C["muted"])
     if width:
         opts["width"] = width
@@ -84,14 +99,14 @@ def label(parent, text="", muted=False, size=13, bold=False, **kw):
 
 
 def entry(parent, variable, width=60, **kw):
-    return ctk.CTkEntry(parent, textvariable=variable, width=width, height=32, corner_radius=8,
+    return ctk.CTkEntry(parent, textvariable=variable, width=width, height=32, corner_radius=5,
                         fg_color=C["surface"], border_color=C["border"], text_color=C["text"],
                         font=font(13), **kw)
 
 
 def checkbox(parent, variable, text="", command=None, **kw):
     return ctk.CTkCheckBox(parent, text=text, variable=variable, command=command,
-                           checkbox_width=18, checkbox_height=18, corner_radius=5, border_width=2,
+                           checkbox_width=18, checkbox_height=18, corner_radius=3, border_width=2,
                            fg_color=C["accent"], hover_color=C["accent_hover"],
                            border_color=C["muted"], text_color=C["text"], font=font(13), **kw)
 
@@ -115,7 +130,7 @@ class SortMenu:
         self.var = tk.StringVar(value=self._labels.get(mode, options[0][1]))
         self.widget = ctk.CTkOptionMenu(
             parent, values=[label_ for _, label_ in options], variable=self.var,
-            command=lambda _value: command(), width=150, height=30, corner_radius=8,
+            command=lambda _value: command(), width=150, height=30, corner_radius=5,
             fg_color=C["surface2"], button_color=C["surface2"], button_hover_color=C["border"],
             text_color=C["text"], dropdown_fg_color=C["surface2"], dropdown_hover_color=C["border"],
             dropdown_text_color=C["text"], font=font(12), dropdown_font=font(12))
@@ -150,7 +165,7 @@ def inline_editor(master, text, on_save, width=160, height=28):
     Поле для правки текста прямо на месте (например, названия DNS).
     Enter или клик мимо — сохранить, Esc — отменить. Размещает поле вызывающий код.
     """
-    entry = ctk.CTkEntry(master, width=width, height=height, corner_radius=6, border_width=1,
+    entry = ctk.CTkEntry(master, width=width, height=height, corner_radius=4, border_width=1,
                          fg_color=C["surface2"], border_color=C["accent"], text_color=C["text"],
                          font=font(13))
     entry.insert(0, text)
@@ -185,7 +200,7 @@ def toplevel(root, title, geometry):
 
 def textbox(parent, mono=True, **kw):
     return ctk.CTkTextbox(parent, fg_color=C["surface"], text_color=C["text"],
-                          border_width=0, corner_radius=8, wrap="word",
+                          border_width=0, corner_radius=5, wrap="word",
                           font=font(12, mono=mono), **kw)
 
 
