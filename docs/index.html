@@ -37,6 +37,29 @@
       </table>
     </section>
 
+    <section id="feedback-panel" class="feedback-panel" hidden>
+      <h2>Проверили на консоли?</h2>
+      <p class="fb-question">Вошёл ли вход в Xbox Live после смены DNS?</p>
+      <div class="fb-buttons" id="fb-step1">
+        <button data-outcome="worked" class="fb-btn fb-green">Вход заработал</button>
+        <button data-outcome="same_error" class="fb-btn fb-yellow">Та же ошибка</button>
+        <button data-outcome="different_error" class="fb-btn fb-red">Другая ошибка</button>
+        <button data-outcome="unknown" class="fb-btn fb-gray">Не знаю / не проверял</button>
+      </div>
+      <div id="fb-step2" class="fb-step2" hidden>
+        <p class="fb-question">Где прописан DNS? (можно не отвечать — но так статистика точнее)</p>
+        <div class="fb-buttons">
+          <button data-applied="console" class="fb-btn">На консоли</button>
+          <button data-applied="router" class="fb-btn">На роутере</button>
+          <button data-applied="both" class="fb-btn">И там, и там</button>
+          <button data-applied="unknown" class="fb-btn fb-gray">Не скажу</button>
+        </div>
+      </div>
+      <p class="fb-note">Анонимно: только результат, место настройки и итог проверки.
+        Без имени, IP и данных абонента.</p>
+      <p id="fb-status" class="fb-status" role="status"></p>
+    </section>
+
     <section class="notes">
       <h2>Что умеет и чего не умеет эта страница</h2>
       <ul>
@@ -60,6 +83,8 @@
     <p>DNS Checker · диагностика для поддержки · данные о рабочих адресах обновляются вручную с датой проверки</p>
   </footer>
 
+  <script src="config.js"></script>
   <script src="app.js"></script>
+  <script src="feedback.js"></script>
 </body>
 </html>

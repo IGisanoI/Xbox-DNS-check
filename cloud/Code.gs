@@ -48,7 +48,7 @@ function validateReport_(report) {
   if (['office', 'home', 'vpn', 'other'].indexOf(report.network_type) < 0) {
     throw new Error('invalid network type');
   }
-  validateIp_(report.dns1, false);
+  validateIp_(report.dns1, true);   // веб-отчёты не знают DNS консоли: оба адреса необязательны
   validateIp_(report.dns2, true);
   const clean = {};
   FIELDS.forEach(function(key) {

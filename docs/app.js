@@ -379,6 +379,12 @@ async function runAll() {
   setStatus("Готово" + tail + ". Данные кэшируются 5 минут.");
   btn.disabled = false;
   state.running = false;
+  // Stage 2: после завершённой проверки показываем панель обратной связи.
+  if (typeof fbShowPanel === "function") fbShowPanel();
+  if (typeof fbWire === "function" && !state.fbWired) {
+    state.fbWired = true;
+    fbWire(state);
+  }
 }
 
 function friendlyError(e) {
