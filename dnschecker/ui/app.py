@@ -1,8 +1,10 @@
 """Главное окно: вкладки, тема, сохранение настроек при закрытии."""
 
+import webbrowser
+
 import customtkinter as ctk
 
-from .. import __version__, owners, storage
+from .. import __version__, owners, storage, version_check
 from ..server_list import ServerList
 from . import common as ui
 from .common import C
@@ -50,6 +52,25 @@ class App:
         self.tabs.set(tab if tab in (TAB_XBOX, TAB_SERVERS) else TAB_XBOX)
 
         root.protocol("WM_DELETE_WINDOW", self.on_close)
+        version_check.check_async(__version__, self._on_version_result)
+
+    def _on_version_result(self, result):
+        """Показ из главного потока: версия новее — уведомление со ссылкой, без автообновлений."""
+        if not result:
+            return
+        self.root.after(0, lambda: self._show_version_notice(result))
+
+    def _show_version_notice(self, result):
+        win = ui.toplevel(self.root, "Новая версия DNS Checker", "460x170")
+        ui.label(win, f"Вышла версия {result['tag']} (у вас {__version__}).", size=14)\
+            .pack(anchor="w", padx=16, pady=(16, 4))
+        ui.label(win, "Обновление только вручную — по ссылке. Ничего не скачивается само.",
+                 muted=True, size=12).pack(anchor="w", padx=16)
+        bar = ctk.CTkFrame(win, fg_color="transparent")
+        bar.pack(fill="x", padx=16, pady=(14, 12))
+        ui.button(bar, "Открыть страницу релизов",
+                  lambda: webbrowser.open(result["url"]), primary=True).pack(side="right")
+        ui.button(bar, "Позже", win.destroy).pack(side="right", padx=(0, 8))
 
     def _page(self, name):
         """Вкладка с внутренними отступами."""

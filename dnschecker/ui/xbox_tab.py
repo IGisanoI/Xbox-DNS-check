@@ -20,7 +20,7 @@ from tkinter import messagebox
 
 import customtkinter as ctk
 
-from .. import __version__, dns_tools, feedback, network, owners, paths, reply, server_list, storage, xbox
+from .. import __version__, dns_tools, feedback, network, owners, overrides, paths, reply, server_list, stats, storage, xbox
 from . import common as ui, dialogs
 from .common import C, KIND_COLORS, LEVEL_FG
 
@@ -84,6 +84,7 @@ class XboxTab:
         self.run_network = {}
         self.feedback_sending = False
         self.console_results = {}
+        self.rec_panel = None
 
         self._build(parent, settings)
         self.model.subscribe(self._sync_rows)
@@ -92,6 +93,7 @@ class XboxTab:
             self.status_var.set(load_note)
         self.poll_job = self.root.after(100, self._poll)
         self.root.after(1500, self._start_feedback_flush)
+        threading.Thread(target=self._stats_worker, daemon=True).start()
         if self.monitor_var.get():
             # Monitoring was on when the program closed: start again.
             self.monitor_job = self.root.after(3000, self._monitor_tick)
@@ -118,6 +120,7 @@ class XboxTab:
         self.reply_btn = ui.button(primary, "Ответ абоненту", self.show_reply, width=150)
         self.reply_btn.pack(side="left", padx=8)
         ui.button(primary, "Результат на консоли", self.show_feedback, width=170).pack(side="left")
+        ui.button(primary, "IP-обход", self.check_overrides, width=100).pack(side="left", padx=(8, 0))
         self.advanced_btn = ui.button(primary, "⚙  Настройки", self._toggle_advanced, width=120)
         self.advanced_btn.pack(side="right")
         self.monitor_caption = ui.label(primary, "", muted=True, size=12)
@@ -484,6 +487,59 @@ class XboxTab:
                 self.sort.set(server_list.SORT_CUSTOM)
                 self.model.set_order(self.display)
 
+    # --- рекомендации из общей статистики (Stage 5) ---
+
+    def _stats_worker(self):
+        """Тянет сводку в фоне; результат забирает _poll в главном потоке."""
+        source, data = stats.get_stats()
+        self.results.put(("stats", None, None, (source, data)))
+
+    def _render_recommendations(self, source, data):
+        """Панель «Рекомендуемые DNS»: предлагает, никогда не применяет сама."""
+        if self.rec_panel is not None:
+            self.rec_panel.destroy()
+            self.rec_panel = None
+        org = self.run_network.get("org", "")
+        recs = stats.recommendations(data, org=org)
+        if not recs:
+            # Fail soft: без данных приложение работает ровно как раньше.
+            if source != "none":
+                note = "Пока мало данных для рекомендаций."
+            else:
+                note = "Сводка недоступна (нет сети и кэша) — рекомендации появятся позже."
+            panel = ctk.CTkFrame(self.parent, fg_color=C["surface"], corner_radius=8)
+            ui.label(panel, "Рекомендуемые DNS", bold=True).pack(side="left", padx=(12, 12), pady=7)
+            ui.label(panel, note, muted=True, size=12).pack(side="left", pady=7)
+            panel.pack(fill="x", pady=(0, 6), before=self.table_area)
+            self.rec_panel = panel
+            return
+        panel = ctk.CTkFrame(self.parent, fg_color=C["surface"], corner_radius=8)
+        ui.label(panel, "Рекомендуемые DNS", bold=True).pack(side="left", padx=(12, 4), pady=7)
+        ui.label(panel, "из общей статистики" + (" (кэш)" if source == "cache" else ""),
+                 muted=True, size=11).pack(side="left", padx=(0, 10), pady=7)
+        for rec in recs:
+            chip = ctk.CTkFrame(panel, fg_color=C["surface2"], corner_radius=8)
+            chip.pack(side="left", padx=4, pady=6)
+            mark = " · в вашей сети" if rec["org_match"] else ""
+            ui.label(chip, f"{rec['dns']}  —  {stats.label(rec)}"
+                     f" ({round(rec['success_rate'] * 100)}%){mark}",
+                     size=12).pack(side="left", padx=(8, 4))
+            ui.button(chip, "Добавить", lambda d=rec["dns"]: self._add_recommended(d),
+                      width=76, height=24, font=ui.font(12)).pack(side="left", padx=(2, 6), pady=3)
+        ui.label(panel, "предложение, не автонастройка", muted=True, size=11).pack(side="right", padx=10)
+        panel.pack(fill="x", pady=(0, 6), before=self.table_area)
+        self.rec_panel = panel
+
+    def _add_recommended(self, ip):
+        """Один клик = добавить в список и отметить для проверки. Решение — за человеком."""
+        self.unchecked.discard(ip)
+        if ip in self.rows:
+            self.rows[ip].selected.set(True)
+            self._relayout()
+        else:
+            self.model.add(ip, "из статистики")
+        self.status_var.set(f"{ip} добавлен в список проверки")
+
     # --- check ---
 
     def start(self, from_monitor=False):
@@ -554,6 +610,12 @@ class XboxTab:
                 touched.add(ip)
             elif kind == "network":
                 self.run_network["org"] = network.org_text(res)
+            elif kind == "stats":
+                source, data = res
+                self._render_recommendations(source, data)
+            elif kind == "overrides":
+                results, logged = res
+                self._show_overrides(results, logged)
             elif kind == "feedback":
                 self.feedback_sending = False
                 if res.get("error"):
@@ -643,6 +705,46 @@ class XboxTab:
         for job in (self.poll_job, self.monitor_job):
             if job:
                 self.root.after_cancel(job)
+
+    # --- IP-обход (Stage 5b): проверка статических записей ---
+
+    def check_overrides(self):
+        """Проверяет курируемые «домен → IP» в фоне, показывает окно и пишет лог."""
+        if self.running:
+            messagebox.showinfo("IP-обход", "Дождитесь окончания текущей проверки DNS")
+            return
+        data = overrides.load()
+        if not data:
+            messagebox.showinfo("IP-обход", "ip_overrides.json пуст или не найден рядом с программой")
+            return
+        timeout = ui.int_from(self.timeout_var, 4, 1, 30)
+        self.status_var.set("Проверяю IP-обходы…")
+        threading.Thread(target=self._overrides_worker, args=(data, timeout), daemon=True).start()
+
+    def _overrides_worker(self, data, timeout):
+        results = overrides.verify(data, self.items, timeout)
+        try:
+            overrides.write_log(results)
+            logged = True
+        except OSError:
+            logged = False
+        self.results.put(("overrides", None, None, (results, logged)))
+
+    def _show_overrides(self, results, logged):
+        self.status_var.set("Проверка IP-обходов завершена" + ("" if logged else "   ⚠ лог не записан"))
+        counts = overrides.summary(results)
+        lines = ["Статические записи «домен → IP»: живые адреса для обхода.",
+                 "IP гниют — каждый результат с меткой времени, гарантий нет.", ""]
+        for r in results:
+            mark = "✔" if r["alive"] else "✖"
+            ms = f" · {r['ms']:.0f} мс" if r.get("ms") else ""
+            lines.append(f"{mark} {r['domain']} → {r['ip']}")
+            lines.append(f"    {r['label']}{ms}   [{r['checked_at']}]")
+            lines.append(f"    {r['text'][:140]}")
+            lines.append("")
+        for domain, (alive, total) in counts.items():
+            lines.append(f"Итог {domain}: {alive} из {total} живые")
+        ui.show_text_window(self.root, "IP-обход", "\n".join(lines))
 
     # --- windows and anonymous feedback ---
 
